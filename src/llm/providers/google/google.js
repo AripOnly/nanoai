@@ -83,14 +83,14 @@ export async function* request(request) {
 
     const input = request.input.map(toGemini).filter((part) => part != null);
 
-    yield {
-      role: EVENT.ASSISTANT,
-      content: {
-        text: "ok",
-      },
-    };
+    // yield {
+    //   role: EVENT.ASSISTANT,
+    //   content: {
+    //     text: "ok",
+    //   },
+    // };
 
-    return;
+    // return;
 
     const body = {
       model: request.model,

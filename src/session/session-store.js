@@ -14,6 +14,7 @@ class SessionStore {
     this.turns = new Map();
   }
 
+  // start record event
   start(session_id, event, input) {
     this.turns.set(session_id, {
       turn: [
@@ -26,6 +27,7 @@ class SessionStore {
     });
   }
 
+  // recort event
   record(session_id, event) {
     const state = this.turns.get(session_id);
     if (!state) return;
@@ -42,6 +44,7 @@ class SessionStore {
     state.turn.push(event);
   }
 
+  // save event recording results to the database
   commit(session_id, token = null) {
     const state = this.turns.get(session_id);
     if (!state || state.turn.length === 0) return;
@@ -77,20 +80,22 @@ class SessionStore {
     this.turns.delete(session_id);
   }
 
-  getSummary(session_id) {
+  // retrieve the summary based on session_id
+  getSummary(session_id = "") {
     const row = sql
       .prepare("SELECT summary FROM session WHERE id = ?")
       .get(session_id);
     return row?.summary ?? null;
   }
 
-  compact(session_id, summary) {
+  // save the comparison results to the database
+  compact(session_id = "", summary = "") {
     sql
       .prepare("UPDATE session SET summary = ? WHERE id = ?")
       .run(summary, session_id);
   }
 
-  getHistory(session_id, parts = false) {
+  getHistory(session_id = "", parts = false) {
     const rows = sql
       .prepare("SELECT parts FROM turn WHERE session_id = ? ORDER BY id ASC")
       .all(session_id);
@@ -144,18 +149,22 @@ class SessionStore {
       .all();
   }
 
-  createSession(name = null) {
+  createSession(name = null, initialPrompt = null) {
     const id = randomUUID();
     const finalName = name ?? `session-${id.slice(0, 8)}`;
 
     sql
-      .prepare("INSERT INTO session (id, name) VALUES (?, ?)")
-      .run(id, finalName);
+      .prepare("INSERT INTO session (id, name, initial_prompt) VALUES (?, ?, ?)")
+      .run(id, finalName, initialPrompt);
     return sql.prepare("SELECT * FROM session WHERE id = ?").get(id);
   }
 
   getSessionById(id) {
     return sql.prepare("SELECT * FROM session WHERE id = ?").get(id);
+  }
+
+  getSessionInfo(id) {
+    return sql.prepare("SELECT id, name, initial_prompt, created_at, updated_at FROM session WHERE id = ?").get(id);
   }
 
   renameSession(id, name) {

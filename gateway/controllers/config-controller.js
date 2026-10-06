@@ -1,6 +1,6 @@
 // src/gateway/controllers/config-controller.js
 
-import { settings } from "../../config/setting.js";
+import { settings } from "../../src/config/setting.js";
 
 export async function getSetting(req, res, next) {
   const key = req.body?.key;

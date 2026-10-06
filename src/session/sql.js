@@ -38,4 +38,8 @@ if (!sessionColumns.some((column) => column.name === "token")) {
   sql.exec("ALTER TABLE session ADD COLUMN token INTEGER");
 }
 
+if (!sessionColumns.some((column) => column.name === "initial_prompt")) {
+  sql.exec("ALTER TABLE session ADD COLUMN initial_prompt TEXT");
+}
+
 export default sql;

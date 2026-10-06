@@ -7,7 +7,8 @@
   },
   "private": true,
   "scripts": {
-    "nano": "npx tsx app.jsx"
+    "nano": "npx tsx app.jsx",
+    "start": "node gateway/server.js"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
