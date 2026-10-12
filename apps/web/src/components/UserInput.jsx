@@ -3,7 +3,7 @@ import { useState } from "react";
 import TextArea from "./TextArea";
 import { Plus, ArrowUp } from "lucide-react";
 
-export default function UserInput({ sendMessage, newSession }) {
+export default function UserInput({ sendMessage, newSession, loadingMessage }) {
   const [value, setValue] = useState("");
 
   const handleSubmit = (event) => {
@@ -41,7 +41,7 @@ export default function UserInput({ sendMessage, newSession }) {
             </div>
 
             <div className="ml-auto p-2 bg-blue-500 flex justify-center items-center rounded-[50%] text-white hover:bg-blue-600 active:scale-95">
-              <button name="submit" type="submit">
+              <button name="submit" type="submit" disabled={loadingMessage}>
                 <ArrowUp size={25}></ArrowUp>
               </button>
             </div>

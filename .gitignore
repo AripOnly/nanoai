@@ -5,17 +5,22 @@ node_modules/
 .env
 .env.*
 
-# Config
-config/settings.json
+# Config (user config now lives in ~/.nanoai/nano.config.json, outside the repo)
 
-# Storage
+# Storage (legacy repo-relative dir; runtime data now lives in ~/.nanoai/)
 storage/*
+
+# Build output (regenerate with the web app build, never commit)
+apps/web/dist/
 
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# Test artifacts
+coverage/
 
 # OS
 .DS_Store

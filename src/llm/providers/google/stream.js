@@ -1,6 +1,6 @@
 // src/provider/google/google-clean-output.js
 
-import { EVENT } from "../../../shared/event-type.js";
+import { EVENT } from "#src/shared/event-type.js";
 
 function parseArguments(raw) {
   if (typeof raw !== "string" || raw.trim() === "") return {};
@@ -23,8 +23,6 @@ export async function* stream(llmStream) {
   };
 
   for await (const event of llmStream) {
-    // console.log(JSON.stringify(event, null, 2));
-    // continue;
     switch (event.event_type) {
       case "step.start":
         currentStepType = event.step.type;
@@ -54,7 +52,7 @@ export async function* stream(llmStream) {
             yield {
               role: EVENT.REASONING_SUMMARY,
               content: {
-                summary: delta.content.text,
+                text: delta.content.text,
               },
             };
             break;
@@ -99,7 +97,6 @@ export async function* stream(llmStream) {
 
       case "interaction.completed": {
         const usage = event.interaction?.usage ?? {};
-
         yield {
           role: EVENT.TOKEN,
           content: {

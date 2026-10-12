@@ -1,17 +1,21 @@
 // src/agents/compaction.js
 
-import { llm } from "../llm/llm.js";
-import { createInstruction } from "../prompts/createInstruction.js";
-import { EVENT } from "../shared/event-type.js";
-import { sessionStore } from "../session/session-store.js";
-import models from "../llm/providers/google/models.js";
+import { llm } from "#src/llm/llm.js";
+import { collectAttachmentIds } from "#src/llm/providers/google/google.js";
+import { createInstruction } from "#src/prompts/createInstruction.js";
+import { EVENT } from "#src/shared/event-type.js";
+import { sessionStore } from "#src/session/session-store.js";
 import { agents } from "./registry.js";
-import { settings } from "../config/setting.js";
+import { settings } from "#src/config/config.js";
 
-export async function checkCompaction({ model, token = null }) {
+export async function checkCompaction({ provider = null, model, token = null }) {
   const { ratio } = await settings.get("compaction");
 
-  const modelLimit = models.find((m) => m.id === model)?.context;
+  const candidates =
+    provider && llm[provider]
+      ? llm[provider].models
+      : Object.values(llm).flatMap((entry) => entry.models);
+  const modelLimit = candidates.find((m) => m.id === model)?.context;
 
   if (!modelLimit) {
     return false;
@@ -20,26 +24,26 @@ export async function checkCompaction({ model, token = null }) {
   return (token ?? 0) > modelLimit * (ratio / 100);
 }
 
-export async function* compaction({ history, session_id, provider, model }) {
+export async function* compaction({ conversation, session_id, provider, model }) {
   const { keep_turn } = await settings.get("compaction");
 
   // There is nothing to compact if there are not enough turns.
-  if (history.length <= keep_turn) {
+  if (conversation.length <= keep_turn) {
     return null;
   }
 
   let userIndexes = [];
 
-  let lastCompactionIndex = history.findLastIndex(
+  let lastCompactionIndex = conversation.findLastIndex(
     (event) => event.role === EVENT.COMPACTION,
   );
 
   if (lastCompactionIndex === -1) {
-    lastCompactionIndex = history.length;
+    lastCompactionIndex = conversation.length;
   }
 
   for (let i = 0; i < lastCompactionIndex; i++) {
-    if (history[i]?.role === EVENT.USER) {
+    if (conversation[i]?.role === EVENT.USER) {
       userIndexes.push(i);
     }
   }
@@ -50,10 +54,13 @@ export async function* compaction({ history, session_id, provider, model }) {
     return null;
   }
 
-  const compactHistory = history.slice(0, keepUserIndexes[0]);
+  const compactConversation = conversation.slice(0, keepUserIndexes[0]);
 
-  const messages = compactHistory.filter(
-    (item) => item?.role !== EVENT.COMPACTION,
+  const messages = compactConversation.filter(
+    (item) =>
+      item?.role !== EVENT.COMPACTION &&
+      item?.role !== EVENT.ERROR &&
+      item?.role !== EVENT.TOOL_UPDATE,
   );
 
   const oldSummary = sessionStore.getSummary(session_id);
@@ -85,6 +92,8 @@ export async function* compaction({ history, session_id, provider, model }) {
     ],
 
     tools: compaction.tools,
+    // The summarizer works from text references only; never re-send bytes.
+    sentAttachments: collectAttachmentIds(messages),
   };
 
   let summary = "";

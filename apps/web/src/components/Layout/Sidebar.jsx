@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import ListSessions from "../../components/ListSession";
 
-export default function Sidebar({ listSession, resetHistory }) {
+export default function Sidebar({ listSession, resetConversation }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const widthSidebar = isCollapsed ? "w-16" : "w-64";
@@ -56,7 +56,7 @@ export default function Sidebar({ listSession, resetHistory }) {
               <Link
                 to={"/"}
                 className="px-2 py-1 flex flex-nowrap gap-x-2 hover:bg-gray-200 rounded-sm"
-                onClick={() => resetHistory()}
+                onClick={() => resetConversation()}
               >
                 <SquarePen />
 

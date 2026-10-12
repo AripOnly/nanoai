@@ -1,0 +1,6 @@
+# Packaging is governed by the `files` whitelist in package.json (all entries
+# root-anchored with ./ so they cannot match same-named files deeper down).
+# .gitignore excludes the prebuilt web dashboard (apps/web/dist/, including
+# via apps/web/.gitignore), but that build MUST ship inside the package (the
+# gateway serves it; `prepack` rebuilds it before packing) — un-ignore it.
+!apps/web/dist/

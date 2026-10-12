@@ -1,10 +1,8 @@
 // src/services/session.js
-const baseUrl = "http://localhost:3060/api/v1";
+import { apiFetch } from "./api.js";
 
 async function create(prompt) {
-  const url = `${baseUrl}/session/`;
-
-  const response = await fetch(url, {
+  const response = await apiFetch(`/session/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -21,9 +19,7 @@ async function create(prompt) {
 
 async function list() {
   try {
-    const url = `${baseUrl}/session/list-session`;
-
-    const response = await fetch(url);
+    const response = await apiFetch(`/session/list-session`);
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -36,11 +32,9 @@ async function list() {
   }
 }
 
-async function getHistory(sessionId) {
+async function getConversation(sessionId) {
   try {
-    const url = `${baseUrl}/session/${sessionId}`;
-
-    const response = await fetch(url);
+    const response = await apiFetch(`/session/${sessionId}`);
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -55,9 +49,7 @@ async function getHistory(sessionId) {
 
 async function getSessionInfo(sessionId) {
   try {
-    const url = `${baseUrl}/session/info/${sessionId}`;
-
-    const response = await fetch(url);
+    const response = await apiFetch(`/session/info/${sessionId}`);
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -70,4 +62,4 @@ async function getSessionInfo(sessionId) {
   }
 }
 
-export default { list, getHistory, getSessionInfo, create };
+export default { list, getConversation, getSessionInfo, create };

@@ -1,19 +1,17 @@
 // src/agent/agent.js
 
-import { EVENT } from "../shared/event-type.js";
-import { llm } from "../llm/llm.js";
+import { EVENT } from "#src/shared/event-type.js";
+import { llm } from "#src/llm/llm.js";
 import { toolExecute } from "./tool-execute.js";
-import { toStr } from "../utils/tostr.js";
 import { compaction, checkCompaction } from "./compaction.js";
-import { sessionStore } from "../session/session-store.js";
+import { sessionStore } from "#src/session/session-store.js";
+import { settings } from "#src/config/config.js";
 
 export async function* agentLoop(request) {
   const provider = llm[request.provider];
-
   if (!provider) {
     throw new Error(`Unknown provider: ${request.provider}`);
   }
-
   while (true) {
     let toolCall = [];
     let reasoningSignature = "";
@@ -43,8 +41,6 @@ export async function* agentLoop(request) {
       yield event;
     }
 
-    if (toolCall.length === 0) break;
-
     if (assistantText) {
       request.input.push({
         role: EVENT.ASSISTANT,
@@ -52,7 +48,51 @@ export async function* agentLoop(request) {
       });
     }
 
-    const results = await Promise.all(toolCall.map((tc) => toolExecute(tc)));
+    if (toolCall.length === 0) break;
+    // Dual-channel streaming (opencode-style):
+    // - live previews yield TOOL_UPDATE for the user (transient, not persisted)
+    // - final values yield TOOL_RESULT for the LLM + history.
+    const pendingUpdates = [];
+    const promises = toolCall.map((tc) =>
+      toolExecute(tc, {
+        signal: request.signal,
+        sessionID: request.session_id,
+        onUpdate: (update = {}) => {
+          pendingUpdates.push({
+            role: EVENT.TOOL_UPDATE,
+            content: {
+              call_id: update.call_id ?? update.callId ?? tc.call_id,
+              name: tc.name,
+              preview: update.preview ?? "",
+            },
+          });
+        },
+        onOutput: (chunk) => {
+          const text = chunk?.text ?? "";
+          if (!text) return;
+          pendingUpdates.push({
+            role: EVENT.TOOL_UPDATE,
+            content: { call_id: tc.call_id, name: tc.name, preview: text.slice(-4000) },
+          });
+        },
+      }),
+    );
+
+    let toolsDone = false;
+    const all = Promise.all(promises).then((r) => {
+      toolsDone = true;
+      return r;
+    });
+    while (!toolsDone) {
+      await Promise.race([all, new Promise((r) => setTimeout(r, 50))]);
+      while (pendingUpdates.length > 0) {
+        yield pendingUpdates.shift();
+      }
+    }
+    const results = await all;
+    while (pendingUpdates.length > 0) {
+      yield pendingUpdates.shift();
+    }
 
     for (let i = 0; i < toolCall.length; i++) {
       yield {
@@ -72,13 +112,13 @@ export async function* agentLoop(request) {
       ...provider.feed({
         reasoningSignature,
         toolCall,
-        toolResult: results.map(toStr),
+        toolResult: results,
       }),
     );
 
-    if (await checkCompaction({ model: request.model, token })) {
+    if (await checkCompaction({ provider: request.provider, model: request.model, token })) {
       let compact = compaction({
-        history: request.input,
+        conversation: request.input,
         provider: request.provider,
         model: request.model,
         session_id: request.session_id,
@@ -105,7 +145,8 @@ export async function* agentLoop(request) {
         role: EVENT.COMPACTION,
         content: { text: resultCompaction.trim() },
       });
-      request.input = sessionStore.pruneHistory(request.input);
+      const { keep_turn } = await settings.get("compaction");
+      request.input = sessionStore.pruneConversation(request.input, keep_turn);
     }
   }
 }

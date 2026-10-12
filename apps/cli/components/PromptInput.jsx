@@ -23,18 +23,24 @@ const PromptInput = ({
   onRenameSession,
   sessions = [],
   provider = "",
+  providers = [],
   models,
   onSwitchModel,
+  onSaveProviderKey,
 }) => {
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState("text"); // "text" | "command" | "session" | "sessionActions" | "sessionRename"
+  const [mode, setMode] = useState("text"); // "text" | "command" | "session" | "sessionActions" | "sessionRename" | "model" | "provider" | "providerKey"
   const [selectedSession, setSelectedSession] = useState(null);
   const [renameInput, setRenameInput] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState(null);
+  const [keyInput, setKeyInput] = useState("");
 
   const reset = () => {
     setInput("");
     setSelectedSession(null);
     setRenameInput("");
+    setSelectedProvider(null);
+    setKeyInput("");
     setMode("text");
   };
 
@@ -85,10 +91,20 @@ const PromptInput = ({
     if (item.value === "model") {
       setMode("model");
     }
+
+    if (item.value === "provider") {
+      setMode("provider");
+    }
+
+    if (item.value === "exit") {
+      onExit();
+    }
   };
 
   const cancel = () => {
     setInput("");
+    setSelectedProvider(null);
+    setKeyInput("");
     setMode("text");
   };
 
@@ -131,6 +147,19 @@ const PromptInput = ({
 
   const handleSwitchModel = (model) => {
     onSwitchModel(model.value);
+    reset();
+  };
+
+  const handleSelectProvider = (item) => {
+    setSelectedProvider(item.value);
+    setKeyInput("");
+    setMode("providerKey");
+  };
+
+  const handleSaveKey = (value) => {
+    if (selectedProvider && value.trim() !== "") {
+      onSaveProviderKey(selectedProvider, value.trim());
+    }
     reset();
   };
 
@@ -215,6 +244,39 @@ const PromptInput = ({
               onSelect={handleSwitchModel}
               onCancel={cancel}
             />
+          </Box>
+        </Box>
+      )}
+
+      {mode === "provider" && (
+        <Box justifyContent="center" marginTop={1} paddingX={1}>
+          <Box width={"100%"} flexDirection="column">
+            <Text color="gray">Provider (API key target):</Text>
+            <SelectInput
+              items={providers.map((name) => ({
+                value: name,
+                label: name,
+              }))}
+              onSelect={handleSelectProvider}
+              onCancel={cancel}
+            />
+          </Box>
+        </Box>
+      )}
+
+      {mode === "providerKey" && selectedProvider && (
+        <Box justifyContent="center" marginTop={1} paddingX={1}>
+          <Box width={"100%"} flexDirection="column">
+            <Text color="gray">API key for {selectedProvider}:</Text>
+            <Box flexDirection="row">
+              <Text>{"> "}</Text>
+              <TextInput
+                value={keyInput}
+                onChange={setKeyInput}
+                onSubmit={handleSaveKey}
+                mask="*"
+              />
+            </Box>
           </Box>
         </Box>
       )}

@@ -4,7 +4,7 @@ import session from "../services/session.js";
 
 export default function useSession() {
   const [listSession, setListSession] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [conversation, setConversation] = useState([]);
 
   // list session
   useEffect(() => {
@@ -27,14 +27,14 @@ export default function useSession() {
     setListSession(await session.list());
   }, []);
 
-  const updateHistory = useCallback(async (sessionId) => {
-    setHistory([]);
-    const result = await session.getHistory(sessionId);
-    setHistory(result);
+  const updateConversation = useCallback(async (sessionId) => {
+    setConversation([]);
+    const result = await session.getConversation(sessionId);
+    setConversation(result);
   }, []);
 
-  const resetHistory = useCallback(() => {
-    setHistory([]);
+  const resetConversation = useCallback(() => {
+    setConversation([]);
   }, []);
 
   // session info
@@ -46,9 +46,9 @@ export default function useSession() {
     createSession,
     listSession,
     refreshListSession,
-    history,
-    updateHistory,
-    resetHistory,
+    conversation,
+    updateConversation,
+    resetConversation,
     getSessionInfo,
   };
 }

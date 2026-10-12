@@ -1,14 +1,16 @@
 // agent.js
 
-import { settings } from "../config/setting.js";
+import { settings } from "#src/config/config.js";
 import { agentLoop } from "./agent-loop.js";
-import { sessionStore } from "../session/session-store.js";
-import { EVENT } from "../shared/event-type.js";
+import { sessionStore } from "#src/session/session-store.js";
+import { EVENT } from "#src/shared/event-type.js";
 import { agents } from "./registry.js";
-import { createInstruction } from "../prompts/createInstruction.js";
+import { createInstruction } from "#src/prompts/createInstruction.js";
 import { compaction, checkCompaction } from "./compaction.js";
+import { collectAttachmentIds } from "#src/llm/providers/google/google.js";
 
 export async function* agent({ name, prompt, session_id }) {
+  let token = 0;
   try {
     const [provider, model] = (await settings.get("model")).split("/");
     const session = sessionStore.getSessionById(session_id);
@@ -17,14 +19,28 @@ export async function* agent({ name, prompt, session_id }) {
       throw new Error(`Session ${session_id} not found`);
     }
 
-    let token = session.token ?? 0;
+    // A previous turn may have died mid-stream (restart/crash). Mark it
+    // aborted with its partial state first, so this run continues from
+    // exactly where the last one stopped.
+    sessionStore.recoverInterruptedTurns(session_id);
+
+    if (!agents[name]) {
+      throw new Error(
+        `Unknown agent "${name}". Available agents: ${Object.keys(agents).join(", ")}.`,
+      );
+    }
+
+    token = session.token ?? 0;
     let { summary } = sessionStore.getSessionById(session_id) ?? "";
-    let history = sessionStore.getHistory(session_id);
+    let conversation = sessionStore.getConversation(session_id);
     let resultCompaction = "";
 
-    if (await checkCompaction({ model, token })) {
+    if (await checkCompaction({ provider, model, token })) {
       for await (const event of compaction({
-        history,
+        // Errors are persisted for the user but must never reach any LLM.
+        conversation: conversation.filter(
+          (event) => event?.role !== EVENT.ERROR,
+        ),
         session_id,
         provider,
         model,
@@ -43,19 +59,28 @@ export async function* agent({ name, prompt, session_id }) {
       }
     }
 
-    history.push({ role: EVENT.USER, content: { text: prompt } });
+    conversation.push({ role: EVENT.USER, content: { text: prompt } });
 
     if (resultCompaction) {
       summary = resultCompaction.trim();
-      history.push({ role: EVENT.COMPACTION, content: resultCompaction });
+      conversation.push({ role: EVENT.COMPACTION, content: resultCompaction });
     }
 
     const instruction = await createInstruction(agents[name].instruction, {
       summary,
     });
-
-    let input = sessionStore.pruneHistory(history);
-
+    // Error, compaction, and transient tool previews are persisted for bookkeeping
+    // (or not at all for previews), but must never reach the LLM.
+    const { keep_turn } = await settings.get("compaction");
+    const input = sessionStore.pruneConversation(
+      conversation.filter(
+        (event) =>
+          event?.role !== EVENT.ERROR &&
+          event?.role !== EVENT.COMPACTION &&
+          event?.role !== EVENT.TOOL_UPDATE,
+      ),
+      keep_turn,
+    );
     const request = {
       provider,
       model,
@@ -63,6 +88,9 @@ export async function* agent({ name, prompt, session_id }) {
       input,
       tools: agents[name].tools,
       session_id,
+      // Attachments referenced by history are marked sent upfront so the
+      // provider never re-sends (and re-charges) bytes from earlier turns.
+      sentAttachments: collectAttachmentIds(input),
     };
 
     sessionStore.start(session_id, EVENT.USER, prompt);
@@ -75,12 +103,12 @@ export async function* agent({ name, prompt, session_id }) {
 
       yield event;
     }
-
-    sessionStore.commit(session_id, token);
   } catch (error) {
     yield {
       role: EVENT.ERROR,
       content: { message: error.stack },
     };
+  } finally {
+    sessionStore.commit(session_id, token);
   }
 }

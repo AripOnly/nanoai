@@ -1,80 +1,122 @@
 // src/tools/shell/shell.js
+// Rebuilt to follow opencode's shell tool rules (read-only reference:
+// packages/opencode/src/tool/shell.ts + shell/prompt.ts + core/src/shell.ts).
+// Name stays "shell" for nanoai compat, description + JSON schema follow opencode.
 
-import { analyzeCommand } from "./analyze.js";
-import { executeShell } from "./execute-shell.js";
-import { truncateOutput } from "./truncate.js";
+import path from "node:path";
+import fs from "node:fs";
+import { acceptable, name as shellName } from "./select.js";
+import { render } from "./prompt.js";
+import { analyzeCommand } from "./parse.js";
+import { runShell } from "./run.js";
+import { limits } from "#src/tools/shared/truncate.js";
+import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
 
-const MAX_OUTPUT_LINES = 200;
-const MAX_OUTPUT_BYTES = 20 * 1024;
+export const DEFAULT_TIMEOUT_MS = 120_000;
 
-export const shellTool = {
-  type: "function",
-  name: "shell",
-  description:
-    "Execute terminal commands such as git, npm, docker, and other CLI programs.",
-  parameters: {
-    type: "object",
-    properties: {
-      command: {
-        type: "string",
-        description: "The command to execute.",
-      },
-      workdir: {
-        type: "string",
-        description: "Working directory for the command.",
-      },
-      timeout: {
-        type: "number",
-        description: "Timeout in milliseconds. default 120_000",
-      },
-    },
-    required: ["command", "workdir"],
-  },
-};
+function currentShell() {
+  try {
+    return acceptable();
+  } catch {
+    return process.platform === "win32" ? "powershell.exe" : "bash";
+  }
+}
+
+function buildSchema() {
+  const shell = currentShell();
+  const shellKind = shellName(shell) || (process.platform === "win32" ? "powershell" : "bash");
+  const { description, parameters } = render(shellKind, process.platform, limits(), DEFAULT_TIMEOUT_MS);
+  return {
+    type: "function",
+    name: "shell",
+    description,
+    parameters,
+  };
+}
+
+export const shellTool = buildSchema();
+
+function resolveCwd(workdir) {
+  let root;
+  try {
+    root = resolveWorkspaceRoot();
+  } catch {
+    root = process.cwd();
+  }
+  if (!workdir || String(workdir).trim() === "") {
+    return root;
+  }
+  // Absolute workdir can point anywhere (flexible); relative workdir resolves
+  // against the workspace root so results don't depend on launch directory.
+  const abs = path.isAbsolute(workdir) ? path.normalize(workdir) : path.resolve(root, workdir);
+  const st = fs.statSync(abs, { throwIfNoEntry: false });
+  if (!st?.isDirectory()) {
+    throw new Error(`workdir does not exist or is not a directory: ${workdir}`);
+  }
+  return abs;
+}
 
 export async function shell(params, context = {}) {
-  const cwd = params.workdir;
+  const command = params?.command;
+  if (typeof command !== "string" || command.trim() === "") {
+    throw new Error("Command must be a non-empty string.");
+  }
+  if (params?.timeout !== undefined && (!Number.isFinite(params.timeout) || params.timeout < 0)) {
+    throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`);
+  }
 
-  // Analyze the command before execution.
-  const analysis = analyzeCommand(params.command, cwd);
+  const shellPath = currentShell();
+  const cwd = resolveCwd(params?.workdir);
+  const timeout = params?.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  // Execute the command.
-  const result = await executeShell({
-    command: params.command,
+  const analysis = analyzeCommand(command, cwd, shellPath);
+  if (analysis.blocked) {
+    return {
+      success: false,
+      output: "",
+      exitCode: null,
+      timedOut: false,
+      aborted: false,
+      truncated: false,
+      blocked: true,
+      error:
+        `Blocked by safety policy: ${analysis.blocked}. ` +
+        "Do not retry this command. Explain to the user what was blocked " +
+        "and why, then propose a safer alternative.",
+    };
+  }
+
+  const callId = context.callId ?? context.call_id ?? undefined;
+  const onUpdate = (update) => {
+    try {
+      context.onUpdate?.({ call_id: callId, preview: update.preview });
+    } catch {
+      // never break execution
+    }
+    try {
+      context.onOutput?.({ type: "stdout", text: update.preview });
+    } catch {
+      // ignore
+    }
+  };
+
+  const result = await runShell({
+    shell: shellPath,
+    command,
     cwd,
-    timeout: params.timeout ?? 120_000,
+    env: process.env,
+    timeout,
     signal: context.signal,
-
-    onOutput: context.onOutput,
+    onUpdate,
   });
-
-  // Combine stdout and stderr.
-  const rawOutput = result.stdout + result.stderr;
-
-  // Limit the amount of output returned
-  // to the Agent context.
-  const truncated = await truncateOutput(rawOutput, {
-    maxLines: MAX_OUTPUT_LINES,
-
-    maxBytes: MAX_OUTPUT_BYTES,
-  });
-
-  // {
-  //   title: params.command,
-  //   analysis,
-  //   output: truncated.output,
-  //   exitCode: result.code,
-  //   timedOut: result.timedOut,
-  //   aborted: result.aborted,
-  //   truncated: truncated.truncated,
-  //   outputPath: truncated.outputPath,
-  // }
 
   return {
-    output: truncated.output,
+    output: result.output,
     exitCode: result.code,
+    cwd,
     timedOut: result.timedOut,
     aborted: result.aborted,
-    truncated: truncated.truncated,
+    truncated: result.truncated,
+    ...(result.outputPath ? { outputPath: result.outputPath } : {}),
   };
 }

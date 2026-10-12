@@ -1,13 +1,18 @@
 // src/services/agent.js
+import { apiFetch } from "./api.js";
+
 async function* agent(request) {
+  const body = request;
   try {
-    const response = await fetch("http://localhost:3060/api/v1/agent", {
+    const response = await apiFetch(`/agent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(body),
     });
+
+    console.log('[web/services/agent] Fetch response ok:', response.ok);
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -48,7 +53,7 @@ async function* agent(request) {
       yield data;
     }
   } catch (error) {
-    console.error(error.message);
+    console.error('[web/services/agent] Error:', error.message);
   }
 }
 

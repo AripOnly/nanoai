@@ -8,6 +8,8 @@ const COMMANDS = [
   { value: "session", label: "/session", description: "switch session" },
   { value: "new", label: "/new", description: "new session" },
   { value: "model", label: "/model", description: "switch model" },
+  { value: "provider", label: "/provider", description: "set provider API key" },
+  { value: "exit", label: "/exit", description: "quit" },
 ];
 
 const CommandBox = ({ filter = "", onSelect, onCancel }) => {

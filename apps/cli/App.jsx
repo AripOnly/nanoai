@@ -6,21 +6,24 @@ import { Box, useApp, Static, Text } from "ink";
 import { useChat } from "./hooks/useChat.js";
 import { useConfig } from "./hooks/useConfig.js";
 import { useColumns } from "./hooks/useColumns.js";
-import Header from "./components/Header.jsx";
+import { api } from "./lib/api.js";
 import PromptInput from "./components/PromptInput.jsx";
 import Spinner from "./components/Spinner.jsx";
 import BoxChat from "./components/BoxChat.jsx";
 import Thinking from "./components/Thinking.jsx";
-import { sessionStore } from "../../src/session/session-store.js";
 
-export default function App() {
+export default function App({ onExitRequest }) {
   const columns = useColumns();
   const { exit } = useApp();
+  // Embedded mode (nanoai console): leaving chat returns to the console
+  // instead of quitting the process.
+  const handleExit = onExitRequest ?? exit;
   const {
     chat,
-    history,
+    conversation,
     thinking,
     loading,
+    queuedCount,
     send,
     sessions,
     activeSession,
@@ -30,14 +33,11 @@ export default function App() {
     renameSession,
   } = useChat();
 
-  const { provider, model, models, switchModel } = useConfig();
+  const { provider, model, models, configError, switchModel, saveProviderKey } =
+    useConfig();
   const [token, setToken] = useState(0);
 
-  const header = (
-    <Header key={`h-${activeSession?.id ?? "new"}`} columns={columns} />
-  );
-
-  const historyItems = history.map((item, i) => (
+  const conversationItems = conversation.map((item, i) => (
     <BoxChat key={`h-${i}`} chat={[item]} />
   ));
 
@@ -55,15 +55,29 @@ export default function App() {
       setToken(0);
       return;
     }
-    const session = sessionStore.getSessionById(activeSession.id);
-    setToken(session?.token ?? 0);
-  }, [history, activeSession?.id]);
+    let cancelled = false;
+    api
+      .getSessionInfo(activeSession.id)
+      .then((session) => {
+        if (!cancelled) {
+          setToken(session?.token ?? 0);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setToken(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation, activeSession?.id]);
 
   return (
     <>
       <Static
         key={activeSession?.id ?? "new"}
-        items={[header, ...historyItems]}
+        items={[...conversationItems]}
         style={{ width: columns, paddingLeft: 1, paddingRight: 1 }}
       >
         {(el) => el}
@@ -80,15 +94,17 @@ export default function App() {
 
         <PromptInput
           onSend={send}
-          onExit={exit}
+          onExit={handleExit}
           onNew={newSession}
           onSwitchSession={switchSession}
           onDeleteSession={deleteSession}
           onRenameSession={renameSession}
           sessions={sessions}
           provider={provider}
+          providers={Object.keys(models)}
           models={models}
           onSwitchModel={switchModel}
+          onSaveProviderKey={saveProviderKey}
         />
 
         <Box
@@ -101,15 +117,31 @@ export default function App() {
         >
           <Box>{loading ? boxLoading : ""}</Box>
           <Box flexDirection="row" flexWrap="nowrap" gap={2}>
-            <Text>Token: {token}</Text>
-            <Text>|</Text>
-            <Text>session: {activeSession?.name ?? "-"}</Text>
-            <Text>|</Text>
-            <Text>agent: Nano</Text>
-            <Text>|</Text>
-            <Text>
-              model: {provider}/{model}
-            </Text>
+            {configError ? <Text color="red">{configError}</Text> : null}
+            {queuedCount > 0 ? <Text color="yellow">antrean: {queuedCount}</Text> : null}
+            {columns < 70 ? (
+              <>
+                <Text>T:{token}</Text>
+                <Text>|</Text>
+                <Text>{activeSession?.name ?? "-"}</Text>
+                <Text>|</Text>
+                <Text>
+                  {provider}/{model}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text>Token: {token}</Text>
+                <Text>|</Text>
+                <Text>session: {activeSession?.name ?? "-"}</Text>
+                <Text>|</Text>
+                <Text>agent: Nano</Text>
+                <Text>|</Text>
+                <Text>
+                  model: {provider}/{model}
+                </Text>
+              </>
+            )}
           </Box>
         </Box>
       </Box>

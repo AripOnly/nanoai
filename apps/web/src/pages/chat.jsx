@@ -8,12 +8,13 @@ import useChat from "../hooks/useChat.js";
 export default function Chat() {
   const { sessionId } = useParams();
   const location = useLocation();
-  const { history, updateHistory } = useOutletContext();
+  const { conversation: pastConversation, updateConversation } =
+    useOutletContext();
 
-  const { handleMessage, context, isLoading } = useChat({
+  const { sendMessage, conversation, loadingMessage } = useChat({
     sessionId,
-    history,
-    updateHistory,
+    pastConversation,
+    updateConversation,
   });
 
   const [newPrompt, setNewPrompt] = useState(false);
@@ -22,12 +23,12 @@ export default function Chat() {
     async ({ prompt }) => {
       setNewPrompt(true);
       try {
-        await handleMessage({ prompt });
+        await sendMessage({ prompt });
       } finally {
         setNewPrompt(false);
       }
     },
-    [handleMessage],
+    [sendMessage],
   );
 
   useEffect(() => {
@@ -53,15 +54,16 @@ export default function Chat() {
     <>
       <BoxChat
         sessionId={sessionId}
-        context={context}
-        isStreaming={isLoading}
+        context={conversation}
+        isStreaming={loadingMessage}
         newPrompt={newPrompt}
       />
       <UserInput
         newSession={false}
         sendMessage={sendPrompt}
         newPrompt={setNewPrompt}
-        disabled={isLoading}
+        disabled={loadingMessage}
+        loadingMessage={loadingMessage}
       />
     </>
   );

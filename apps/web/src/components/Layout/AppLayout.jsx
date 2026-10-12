@@ -8,23 +8,23 @@ export default function AppLayout() {
     createSession,
     listSession,
     refreshListSession,
-    history,
-    updateHistory,
-    resetHistory,
+    conversation,
+    updateConversation,
+    resetConversation,
     getSessionInfo,
   } = useSession();
 
   return (
     <div className="flex w-screen h-screen relative">
       {/* sidebar */}
-      <Sidebar listSession={listSession} resetHistory={resetHistory}></Sidebar>
+      <Sidebar listSession={listSession} resetConversation={resetConversation}></Sidebar>
 
       {/* main content */}
       <main className="flex-1 flex flex-col min-h-0 bg-white relative">
         <Outlet
           context={{
-            history,
-            updateHistory,
+            conversation,
+            updateConversation,
             createSession,
             refreshListSession,
             getSessionInfo,

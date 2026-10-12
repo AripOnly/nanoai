@@ -82,14 +82,6 @@ export default function BoxChat({
             );
           }
 
-          if (value.role === "compaction") {
-            return (
-              <div key={index} className="w-full p-2 mt-4 text-gray-500 italic">
-                {value.content.compaction}
-              </div>
-            );
-          }
-
           if (value.role === "error") {
             return (
               <div

@@ -2,23 +2,22 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { agent } from "../services/agent.js";
 
-export default function useChat({ sessionId, history, updateHistory }) {
+export default function useChat({ sessionId, pastConversation, updateConversation }) {
   const [stream, setStream] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState(false);
   const sessionIdRef = useRef(sessionId);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
-    updateHistory(sessionId);
-  }, [sessionId, updateHistory]);
+    updateConversation(sessionId);
+  }, [sessionId, updateConversation]);
 
-  const context = [...history, ...stream];
+  const conversation = [...pastConversation, ...stream];
 
-  const handleMessage = useCallback(async ({ prompt }) => {
+  const sendMessage = useCallback(async ({ prompt }) => {
     if (!prompt) return;
 
-    setIsLoading(true);
-
+    setLoadingMessage(true);
     setStream((prev) => [...prev, { role: "user", content: { text: prompt } }]);
 
     try {
@@ -27,9 +26,17 @@ export default function useChat({ sessionId, history, updateHistory }) {
         prompt,
         session_id: sessionIdRef.current,
       })) {
+        setLoadingMessage(false);
+        if (event.role === "reasoning_summary") {
+          console.log("Reasoning Summary:", event.content.summary);
+        }
+
+        if (event.role === "tool_call") {
+          // eventHandler(event, "tool_call");
+        }
+
         if (event.role === "assistant") {
           const text = event.content?.text ?? "";
-
           setStream((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
@@ -48,6 +55,13 @@ export default function useChat({ sessionId, history, updateHistory }) {
             return [...next, { role: "assistant", content: { text } }];
           });
         }
+
+        if (event.role === "error") {
+          setStream((prev) => [
+            ...prev,
+            { role: "error", content: { message: event.content.message } },
+          ]);
+        }
       }
     } catch (error) {
       console.error("Stream error:", error);
@@ -56,9 +70,9 @@ export default function useChat({ sessionId, history, updateHistory }) {
         { role: "error", content: { message: error.message } },
       ]);
     } finally {
-      setIsLoading(false);
+      setLoadingMessage(false);
     }
   }, []);
 
-  return { handleMessage, context, isLoading };
+  return { sendMessage, conversation, loadingMessage };
 }
