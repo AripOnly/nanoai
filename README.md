@@ -29,19 +29,27 @@ folder where it reads, writes, and organizes files for you.
   free tier works).
 - Windows, macOS, or Linux.
 
-## Quickstart (3 commands)
+## Install
 
 ```bash
-git clone <repository-url> && cd nanoai
+npm install -g @ariponly/nanoai
+nanoai -h                    # all commands
+```
+
+## Quickstart (from source)
+
+```bash
+git clone <repository-url>
+cd agent-ai-nano
 npm install
 npm test
+npm link                     # optional: use the local code as `nanoai`
 ```
 
 Configure, then run:
 
 ```bash
-# The nanoai command (works from any folder after npm link / npm install -g)
-nanoai -h                    # all commands
+# The nanoai command (works from any folder after npm install -g / npm link)
 nanoai gateway start         # backend in the background (+ web UI)
 nanoai cli                   # enter chat mode (/exit quits)
 nanoai web                   # print the dashboard URL
@@ -80,7 +88,7 @@ Windows, systemd/pm2 on Linux) with `NANO_WORKSPACE` set explicitly.
 ## Repository structure
 
 ```
-nanoai/
+agent-ai-nano/
   app.jsx                # CLI entry (npm run chat)
   bin/nanoai.js          # the `nanoai` command (gateway supervision + chat)
   apps/console/          # detached gateway supervisor (start/stop/status/log)
