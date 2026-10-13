@@ -27,6 +27,7 @@
     "./apps/cli/",
     "./apps/console/",
     "./apps/web/dist",
+    "./scripts/",
     "./app.jsx",
     "./config/models.json",
     "./config/nano.config.example.json",

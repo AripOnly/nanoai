@@ -44,7 +44,7 @@ export function parseArgs(argv = []) {
   if (lower === "gateway" && ["start", "stop", "restart", "status", "log"].includes((rest[0] ?? "").toLowerCase())) {
     return { name: `gateway:${rest[0].toLowerCase()}`, args: rest.slice(1) };
   }
-  if (["cli", "web"].includes(lower)) {
+  if (["cli", "web", "doctor"].includes(lower)) {
     return { name: lower, args: rest };
   }
   return { name: "unknown", args: words, raw: words.join(" ") };
@@ -63,6 +63,7 @@ export function helpText() {
     "  nanoai gateway log [n]   show the last n backend log lines (default 20)",
     "  nanoai cli               enter chat mode (needs the gateway running)",
     "  nanoai web               print the dashboard URL",
+    "  nanoai doctor            check installation health (node, db, settings, search)",
     "  nanoai -h, --help        show this help",
   ].join("\n");
 }

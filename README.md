@@ -54,6 +54,7 @@ nanoai gateway start         # backend in the background (+ web UI)
 nanoai cli                   # enter chat mode (/exit quits)
 nanoai web                   # print the dashboard URL
 nanoai gateway stop          # stop the backend
+nanoai doctor                # check installation health
 
 # Or with npm scripts from the repo folder:
 npm start                  # gateway in the foreground (debug logs live)

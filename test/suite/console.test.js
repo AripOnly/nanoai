@@ -44,6 +44,7 @@ describe("nanoai argument parsing", () => {
     assert.deepEqual(parseArgs(["gateway", "log", "50"]), { name: "gateway:log", args: ["50"] });
     assert.deepEqual(parseArgs(["cli"]), { name: "cli", args: [] });
     assert.deepEqual(parseArgs(["web"]), { name: "web", args: [] });
+    assert.deepEqual(parseArgs(["doctor"]), { name: "doctor", args: [] });
     assert.deepEqual(parseArgs(["frobnicate"]), { name: "unknown", args: ["frobnicate"], raw: "frobnicate" });
     assert.deepEqual(parseArgs(["gateway", "dance"]), { name: "unknown", args: ["gateway", "dance"], raw: "gateway dance" });
   });
@@ -51,7 +52,7 @@ describe("nanoai argument parsing", () => {
   it("documents every command in help", () => {
     const help = helpText();
     assert.ok(help.includes("nanoai"), "help must name the nanoai command");
-    for (const word of ["gateway start", "gateway stop", "gateway restart", "gateway status", "gateway log", "cli", "web", "--help"]) {
+    for (const word of ["gateway start", "gateway stop", "gateway restart", "gateway status", "gateway log", "cli", "web", "doctor", "--help"]) {
       assert.ok(help.includes(word), `help must mention: ${word}`);
     }
     assert.ok(dashboardUrl(3060).includes("3060"));

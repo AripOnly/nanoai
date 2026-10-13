@@ -70,6 +70,18 @@ async function main() {
     console.log(dashboardUrl(PORT));
     return;
   }
+  if (name === "doctor") {
+    // Doctor is a plain script: run it in-process via a child so its
+    // exit code (0 healthy, 1 problems found) passes through untouched.
+    const doctorScript = path.join(repoRoot, "scripts", "doctor.mjs");
+    const result = spawnSync(process.execPath, [doctorScript], {
+      cwd: repoRoot,
+      stdio: "inherit",
+      windowsHide: true,
+    });
+    if (result.error) fail(`nanoai: failed to run doctor (${result.error.message})`);
+    process.exit(result.status ?? 1);
+  }
   if (name === "cli") {
     if (!(await gatewayHealthy())) {
       fail(`Gateway is not running (port ${PORT}). Start it first: nanoai gateway start`);
