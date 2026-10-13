@@ -27,7 +27,8 @@ folder where it reads, writes, and organizes files for you.
   dependencies.
 - A **Google Gemini API key** ([AI Studio](https://aistudio.google.com/),
   free tier works).
-- Windows, macOS, or Linux.
+- **Windows (tested).** Linux and macOS are written cross-platform but
+  still experimental — please report issues.
 
 ## Install
 
