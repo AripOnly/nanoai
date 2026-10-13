@@ -40,7 +40,7 @@ nanoai -h                    # all commands
 
 ```bash
 git clone <repository-url>
-cd agent-ai-nano
+cd nanoai
 npm install
 npm test
 npm link                     # optional: use the local code as `nanoai`
