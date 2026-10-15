@@ -141,10 +141,16 @@ export async function* request(request) {
       }
     }
 
+    const errMsg = String(err?.message ?? err ?? "");
+    const formatted =
+      message && !errMsg.includes(message)
+        ? `${errMsg}\n${message}`
+        : (message || errMsg || "Google provider error");
+
     yield {
       role: EVENT.ERROR,
       content: {
-        message: `error: ${err}\nmessage: ${message}`,
+        message: formatted,
       },
     };
   }

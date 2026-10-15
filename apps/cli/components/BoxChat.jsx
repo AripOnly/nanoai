@@ -1,13 +1,15 @@
-// Chat.jsx
+// BoxChat.jsx
 
 import React from "react";
-import { Text, Box } from "ink";
+import { Text } from "ink";
 import User from "./User.jsx";
 import Response from "./Response.jsx";
 import ToolCall from "./ToolCall.jsx";
 import { attachToolResults } from "../lib/tool-display.js";
 
 export default function BoxChat({ chat }) {
+  if (!Array.isArray(chat) || chat.length === 0) return null;
+
   return attachToolResults(chat).map((value, index) => {
     if (value.role === "user") {
       return <User key={index}>{value.content?.text ?? value.content}</User>;
@@ -18,6 +20,16 @@ export default function BoxChat({ chat }) {
         <Response
           key={index}
           type="assistant"
+          response={value.content?.text ?? value.content}
+        />
+      );
+    }
+
+    if (value.role === "compaction") {
+      return (
+        <Response
+          key={index}
+          type="compaction"
           response={value.content?.text ?? value.content}
         />
       );
@@ -44,11 +56,18 @@ export default function BoxChat({ chat }) {
     }
 
     if (value.role === "error") {
+      const message =
+        value.content?.message ??
+        (typeof value.content === "string"
+          ? value.content
+          : JSON.stringify(value.content ?? ""));
       return (
         <Text key={index} color="red">
-          {value.content.message ?? value.content}
+          {message}
         </Text>
       );
     }
+
+    return null;
   });
 }

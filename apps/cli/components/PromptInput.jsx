@@ -46,13 +46,17 @@ const PromptInput = ({
 
   useInput(
     (input, key) => {
-      if (key.escape && mode === "sessionRename") {
-        setSelectedSession(null);
-        setRenameInput("");
-        setMode("session");
+      if (key.escape) {
+        if (mode === "sessionRename") {
+          setSelectedSession(null);
+          setRenameInput("");
+          setMode("session");
+        } else if (mode === "providerKey") {
+          cancel();
+        }
       }
     },
-    { isActive: mode === "sessionRename" },
+    { isActive: mode === "sessionRename" || mode === "providerKey" },
   );
 
   const handleChange = (value) => {
@@ -109,6 +113,7 @@ const PromptInput = ({
   };
 
   const handleSelectSession = (item) => {
+    if (!item?.value) return;
     const session = sessions.find((s) => s.id === item.value);
     if (!session) return;
     setSelectedSession(session);
@@ -146,7 +151,9 @@ const PromptInput = ({
   };
 
   const handleSwitchModel = (model) => {
-    onSwitchModel(model.value);
+    if (model?.value) {
+      onSwitchModel(model.value);
+    }
     reset();
   };
 

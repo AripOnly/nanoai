@@ -1,11 +1,8 @@
 import React from "react";
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
 import { formatToolTarget, formatPreview } from "../lib/tool-display.js";
 
 const ToolCall = ({ toolCall }) => {
-  const { stdout } = useStdout();
-  const columns = stdout.columns;
-
   const arg = formatToolTarget(toolCall.name, toolCall.arguments);
   const preview = formatPreview(toolCall.preview);
   const result = toolCall.result;

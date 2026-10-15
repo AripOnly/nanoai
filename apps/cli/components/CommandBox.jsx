@@ -20,6 +20,11 @@ const CommandBox = ({ filter = "", onSelect, onCancel }) => {
   return (
     <Box width={"100%"} flexDirection="column">
       <Text color="gray">Commands</Text>
+      {items.length === 0 && (
+        <Box paddingX={1}>
+          <Text color="gray">No matching commands</Text>
+        </Box>
+      )}
       <SelectInput items={items} onSelect={onSelect} onCancel={onCancel} />
     </Box>
   );

@@ -1,12 +1,14 @@
 // App.jsx
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Box, useApp, Static, Text } from "ink";
 
 import { useChat } from "./hooks/useChat.js";
 import { useConfig } from "./hooks/useConfig.js";
 import { useColumns } from "./hooks/useColumns.js";
 import { api } from "./lib/api.js";
+import { attachToolResults } from "./lib/tool-display.js";
+import Banner from "./components/Banner.jsx";
 import PromptInput from "./components/PromptInput.jsx";
 import Spinner from "./components/Spinner.jsx";
 import BoxChat from "./components/BoxChat.jsx";
@@ -27,6 +29,7 @@ export default function App({ onExitRequest }) {
     send,
     sessions,
     activeSession,
+    viewKey,
     newSession,
     switchSession,
     deleteSession,
@@ -37,15 +40,19 @@ export default function App({ onExitRequest }) {
     useConfig();
   const [token, setToken] = useState(0);
 
-  const conversationItems = conversation.map((item, i) => (
-    <BoxChat key={`h-${i}`} chat={[item]} />
-  ));
+  const sessionItems = useMemo(
+    () => [
+      <Banner key={`banner-${viewKey}`} />,
+      ...attachToolResults(conversation).map((item, i) => (
+        <BoxChat key={`h-${item?.content?.call_id ?? item?.id ?? i}`} chat={[item]} />
+      )),
+    ],
+    [viewKey, conversation],
+  );
 
   const boxLoading = (
     <Text color="#FFA500">
-      <Text color="#FFA500">
-        <Spinner type="dotsCircle" />
-      </Text>
+      <Spinner type="dotsCircle" />
       {" Loading..."}
     </Text>
   );
@@ -76,8 +83,8 @@ export default function App({ onExitRequest }) {
   return (
     <>
       <Static
-        key={activeSession?.id ?? "new"}
-        items={[...conversationItems]}
+        key={viewKey}
+        items={[...sessionItems]}
         style={{ width: columns, paddingLeft: 1, paddingRight: 1 }}
       >
         {(el) => el}
@@ -126,7 +133,7 @@ export default function App({ onExitRequest }) {
                 <Text>{activeSession?.name ?? "-"}</Text>
                 <Text>|</Text>
                 <Text>
-                  {provider}/{model}
+                  {provider && model ? `${provider}/${model}` : "-"}
                 </Text>
               </>
             ) : (
@@ -138,7 +145,7 @@ export default function App({ onExitRequest }) {
                 <Text>agent: Nano</Text>
                 <Text>|</Text>
                 <Text>
-                  model: {provider}/{model}
+                  model: {provider && model ? `${provider}/${model}` : "-"}
                 </Text>
               </>
             )}

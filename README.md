@@ -6,6 +6,10 @@ folder where it reads, writes, and organizes files for you.
 
 > **Status:** actively developed. The test suite (`npm test`) is the contract —
 > every tool below is covered by it.
+>
+> > **Web dashboard (`apps/web`):** under active development (WIP) — not yet
+> > fully functional. Use the CLI (`nanoai cli`) + Gateway API as the stable
+> > interface for now.
 
 ## Features
 
@@ -64,6 +68,8 @@ npm run chat               # chat UI (needs the gateway running)
 
 The web dashboard is served by the gateway itself from a prebuilt client —
 included in the npm package (built with `npm run build:web` before packing).
+> **Note:** `apps/web` is still WIP / experimental — it builds and serves, but
+> features may be incomplete. CLI + API remain the stable path.
 On first boot the gateway generates a token (shown once in the console) and
 creates the default workspace at `~/nano-workspace`. Open the chat, set your
 provider key with `/provider`, pick a model with `/model`, and talk to NanoAI.
@@ -75,14 +81,14 @@ the SQLite database, attachments, logs, and backups. First run adopts data
 from older layouts automatically. Shipped defaults live in `config/` next to
 the code. Environment variables (all optional):
 
-| Variable                 | Default                    | Purpose                                    |
-| ------------------------ | -------------------------- | ------------------------------------------ |
-| `NANO_DATA_DIR`          | `~/.nanoai`                | Per-user runtime data (config, database)   |
-| `NANO_WORKSPACE`         | `~/nano-workspace`         | Default working directory for all tools    |
-| `NANO_WEBSEARCH_PROVIDER`| per-session split          | `exa` or `parallel` to pin web search      |
-| `NANO_GATEWAY_URL`       | `http://localhost:3060/api/v1` | Gateway address for the CLI            |
-| `PORT`                   | `3060`                     | Gateway listen port                        |
-| `EXA_API_KEY`            | —                          | Optional: higher web-search limits         |
+| Variable                  | Default                        | Purpose                                  |
+| ------------------------- | ------------------------------ | ---------------------------------------- |
+| `NANO_DATA_DIR`           | `~/.nanoai`                    | Per-user runtime data (config, database) |
+| `NANO_WORKSPACE`          | `~/nano-workspace`             | Default working directory for all tools  |
+| `NANO_WEBSEARCH_PROVIDER` | per-session split              | `exa` or `parallel` to pin web search    |
+| `NANO_GATEWAY_URL`        | `http://localhost:3060/api/v1` | Gateway address for the CLI              |
+| `PORT`                    | `3060`                         | Gateway listen port                      |
+| `EXA_API_KEY`             | —                              | Optional: higher web-search limits       |
 
 For 24/7 operation, run the gateway as a system service (Task Scheduler on
 Windows, systemd/pm2 on Linux) with `NANO_WORKSPACE` set explicitly.
@@ -113,6 +119,7 @@ agent-ai-nano/
   config/                # shipped defaults: models catalog + config example
   scripts/               # doctor / backup / restore
 ```
+
 Runtime data (database, `nano.config.json`, attachments, logs, backups) lives
 in `~/.nanoai/` — never inside the install folder, so global installs and
 updates cannot wipe it.

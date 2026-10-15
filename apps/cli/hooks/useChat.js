@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api.js";
+import { clearTerminal } from "../lib/terminal.js";
 import { nameFromPrompt } from "../../../src/shared/naming.js";
 
 export function useChat() {
@@ -11,6 +12,7 @@ export function useChat() {
   const [activeSession, setActiveSession] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [viewKey, setViewKey] = useState(1);
 
   // FIFO queue: prompts sent while a run is in progress wait their turn
   // instead of being rejected or interleaved with the active stream.
@@ -54,10 +56,12 @@ export function useChat() {
       try {
         if (!session) {
           session = await api.createSession(prompt);
+          sessionRef.current = session;
           setActiveSession(session);
         } else if ((await api.getConversation(session.id)).length === 0) {
           const name = nameFromPrompt(prompt);
           session = await api.renameSession(session.id, name);
+          sessionRef.current = session;
           setActiveSession(session);
         }
       } catch (error) {
@@ -84,7 +88,14 @@ export function useChat() {
               const last = next[next.length - 1];
 
               if (last?.role === "assistant") {
-                last.content += text;
+                const prevContent =
+                  typeof last.content === "string"
+                    ? last.content
+                    : (last.content?.text ?? "");
+                next[next.length - 1] = {
+                  ...last,
+                  content: prevContent + text,
+                };
               } else {
                 next.push({ role: "assistant", content: text });
               }
@@ -141,7 +152,14 @@ export function useChat() {
               const last = next[next.length - 1];
 
               if (last?.role === "compaction") {
-                last.content += text;
+                const prevContent =
+                  typeof last.content === "string"
+                    ? last.content
+                    : (last.content?.text ?? "");
+                next[next.length - 1] = {
+                  ...last,
+                  content: prevContent + text,
+                };
               } else {
                 next.push({ role: "compaction", content: text });
               }
@@ -155,13 +173,12 @@ export function useChat() {
 
         const result = await api.getConversation(session.id);
         setConversation(result);
+        // Conversation loaded into history: clear active stream events so
+        // items (including errors) are not rendered twice.
+        setChat([]);
       } catch (error) {
         appendError(error.message);
       } finally {
-        // Move the finished exchange to history, but keep error entries
-        // visible. Blanket-clearing here used to swallow stream failures,
-        // leaving unanswered prompts with no explanation.
-        setChat((prev) => prev.filter((event) => event.role === "error"));
         setThinking(false);
         refreshSessions();
       }
@@ -175,7 +192,6 @@ export function useChat() {
     }
     processingRef.current = true;
     setLoading(true);
-
     try {
       while (queueRef.current.length > 0) {
         const next = queueRef.current.shift();
@@ -190,12 +206,12 @@ export function useChat() {
 
   const send = useCallback(
     (prompt) => {
-      if (!prompt) return;
+      if (!prompt || typeof prompt !== "string" || !prompt.trim()) return;
 
       // Drop stale errors: a new attempt starts with a clean slate.
       setChat((prev) => prev.filter((event) => event.role !== "error"));
 
-      queueRef.current.push(prompt);
+      queueRef.current.push(prompt.trim());
       setQueuedCount(queueRef.current.length);
       void processQueue();
     },
@@ -208,8 +224,10 @@ export function useChat() {
   }, []);
 
   const newSession = useCallback(() => {
-    console.clear();
+    clearTerminal();
     clearQueue();
+    setViewKey((k) => k + 1);
+    sessionRef.current = null;
     setActiveSession(null);
     setChat([]);
     setConversation([]);
@@ -223,11 +241,12 @@ export function useChat() {
       try {
         const session = await api.getSessionInfo(sessionId);
         if (!session) return;
-        // Fresh screen for the new session. Direct console access is
-        // normally avoided inside Ink, but a session switch is a discrete
-        // reset point and Ink redraws the new tree right after.
-        console.clear();
+        // Fresh screen for the new session. Clean terminal completely
+        // and advance viewKey so Static remounts cleanly with the banner.
+        clearTerminal();
         clearQueue();
+        setViewKey((k) => k + 1);
+        sessionRef.current = session;
         setActiveSession(session);
         setChat([]);
         setConversation([]);
@@ -249,7 +268,10 @@ export function useChat() {
         appendError(error.message);
         return;
       }
+      clearTerminal();
       clearQueue();
+      setViewKey((k) => k + 1);
+      sessionRef.current = null;
       setActiveSession(null);
       setChat([]);
       setConversation([]);
@@ -266,6 +288,7 @@ export function useChat() {
       const finalName = name.trim();
       try {
         const session = await api.renameSession(sessionId, finalName);
+        sessionRef.current = session;
         setActiveSession((prev) =>
           prev?.id === sessionId ? session : prev,
         );
@@ -287,6 +310,7 @@ export function useChat() {
     send,
     sessions,
     activeSession,
+    viewKey,
     newSession,
     switchSession,
     deleteSession,

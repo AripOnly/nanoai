@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from "react";
-
+import React from "react";
 import { Box, Text } from "ink";
 import SelectInput from "./SelectInput.jsx";
 
-const ModelList = ({ provider, models, onSelect, onCancel }) => {
+const ModelList = ({ provider, models = {}, onSelect, onCancel }) => {
   let items;
 
-  if (models[provider] !== undefined) {
+  if (models && models[provider] !== undefined) {
     items = models[provider].map((model) => ({
       value: model.id,
       label: model.name,

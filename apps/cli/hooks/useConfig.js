@@ -10,11 +10,15 @@ export function useConfig() {
 
   const switchModel = useCallback(
     async (newModel) => {
+      if (!newModel || typeof newModel !== "string") return;
       try {
         setConfigError("");
-        await api.updateModel(`${provider}/${newModel}`);
+        const fullModel = newModel.includes("/") ? newModel : `${provider}/${newModel}`;
+        await api.updateModel(fullModel);
 
-        setModel(newModel);
+        const [p, m] = fullModel.split("/");
+        if (p) setProvider(p);
+        if (m) setModel(m);
       } catch (error) {
         setConfigError(error.message);
       }
@@ -35,12 +39,17 @@ export function useConfig() {
     async function loadConfig() {
       try {
         const current = await api.getSettings();
-        const [currentProvider, currentModel] = current.model.split("/");
+        const modelStr = typeof current?.model === "string" ? current.model : "";
+        const [currentProvider = "", currentModel = ""] = modelStr.split("/");
 
         const available = await api.listProviders();
         const byProvider = {};
-        for (const entry of available) {
-          byProvider[entry.provider] = entry.models;
+        if (Array.isArray(available)) {
+          for (const entry of available) {
+            if (entry?.provider) {
+              byProvider[entry.provider] = entry.models ?? [];
+            }
+          }
         }
 
         setProvider(currentProvider);

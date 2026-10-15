@@ -16,6 +16,13 @@ const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
     (input, key) => {
       if (!isFocused) return;
 
+      if (key.escape) {
+        onCancel?.();
+        return;
+      }
+
+      if (!items || items.length === 0) return;
+
       if (key.upArrow || input === "k") {
         setCursor((prev) => (prev - 1 + items.length) % items.length);
         return;
@@ -26,15 +33,8 @@ const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
         return;
       }
 
-      if (items[cursor] !== undefined) {
-        if (key.return) {
-          onSelect?.(items[cursor]);
-          return;
-        }
-      }
-
-      if (key.escape) {
-        onCancel?.();
+      if (key.return && items[cursor] !== undefined) {
+        onSelect?.(items[cursor]);
       }
     },
     { isActive: isFocused },
@@ -47,13 +47,13 @@ const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
           <Box
             width={"100%"}
             paddingX={1}
-            backgroundColor={index === cursor ? "#ffa857e8" : ""}
+            backgroundColor={index === cursor ? "#ffa857e8" : undefined}
             flexDirection="row"
             flexWrap="nowrap"
             gap={5}
           >
-            <Box width={item?.description !== undefined ? 15 : ""}>
-              <Text color={index === cursor ? "#111111" : ""}>
+            <Box width={item?.description !== undefined ? 15 : undefined}>
+              <Text color={index === cursor ? "#111111" : undefined}>
                 {item.label}
               </Text>
             </Box>

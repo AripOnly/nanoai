@@ -165,7 +165,10 @@ export default function Markdown({ content, width }) {
               return (
                 <Box key={j} flexDirection="row">
                   <Text color={markerColor}>{marker}</Text>
-                  <Box flexDirection="column" width={columns - markerWidth - 4}>
+                  <Box
+                    flexDirection="column"
+                    width={Math.max(columns - markerWidth - 4, 10)}
+                  >
                     {blocks.map((blk, k) => {
                       if (blk.type === "paragraph" || blk.type === "text") {
                         return (
@@ -201,7 +204,7 @@ export default function Markdown({ content, width }) {
             {splitLines(blocks).map((line, j) => (
               <Box key={j} flexDirection="row">
                 <Text color="yellow">│ </Text>
-                <Box width={columns - 4}>
+                <Box width={Math.max(columns - 4, 10)}>
                   <Inline dim tokens={line} />
                 </Box>
               </Box>
@@ -240,7 +243,7 @@ export default function Markdown({ content, width }) {
       case "hr":
         return (
           <Box key={key} marginBottom={margin}>
-            <Text color="gray">{"─".repeat(columns - 1)}</Text>
+            <Text color="gray">{"─".repeat(Math.max(columns - 1, 0))}</Text>
           </Box>
         );
 

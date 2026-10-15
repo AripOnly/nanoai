@@ -4,7 +4,8 @@
 // the user to paste it.
 import { settings } from "../../../src/config/config.js";
 
-const BASE_URL = process.env.NANO_GATEWAY_URL ?? "http://localhost:3060/api/v1";
+const PORT = process.env.PORT ?? "3060";
+const BASE_URL = process.env.NANO_GATEWAY_URL ?? `http://localhost:${PORT}/api/v1`;
 
 function connectionError() {
   return new Error(
@@ -111,17 +112,28 @@ async function* sse(path, body) {
     if (done) break;
     buffer += value;
 
+    buffer = buffer.replace(/\r\n/g, "\n");
     const events = buffer.split("\n\n");
     buffer = events.pop() ?? "";
 
-    for (const event of events) {
+    for (const rawEvent of events) {
+      const event = rawEvent.trim();
       if (!event.startsWith("data: ")) continue;
-      yield JSON.parse(event.slice(6));
+      try {
+        yield JSON.parse(event.slice(6).trim());
+      } catch {
+        // Skip unparseable heartbeat or malformed chunk.
+      }
     }
   }
 
-  if (buffer.startsWith("data: ")) {
-    yield JSON.parse(buffer.slice(6));
+  const trailing = buffer.replace(/\r\n/g, "\n").trim();
+  if (trailing.startsWith("data: ")) {
+    try {
+      yield JSON.parse(trailing.slice(6).trim());
+    } catch {
+      // Ignore
+    }
   }
 }
 
