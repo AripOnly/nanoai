@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { formatToolTarget, formatPreview } from "../lib/tool-display.js";
 
-const ToolCall = ({ toolCall }) => {
+const ToolCall = React.memo(function ToolCall({ toolCall }) {
   const arg = formatToolTarget(toolCall.name, toolCall.arguments);
   const preview = formatPreview(toolCall.preview);
   const result = toolCall.result;
@@ -47,6 +47,6 @@ const ToolCall = ({ toolCall }) => {
       ) : null}
     </Box>
   );
-};
+});
 
 export default ToolCall;

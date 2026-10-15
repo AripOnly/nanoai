@@ -3,6 +3,7 @@
 import sql from "./sql.js";
 import { randomUUID } from "node:crypto";
 import { EVENT } from "#src/shared/event-type.js";
+import { getCallId } from "#src/shared/call-id.js";
 import { nameFromPrompt } from "#src/shared/naming.js";
 
 export { nameFromPrompt };
@@ -152,18 +153,20 @@ class SessionStore {
       );
       if (lastCallIndex !== -1) {
         const orphan = parts[lastCallIndex].content ?? {};
+        const orphanId = getCallId(orphan);
         const answered = parts
           .slice(lastCallIndex + 1)
           .some(
             (event) =>
               event?.role === EVENT.TOOL_RESULT &&
-              event?.content?.call_id === orphan.call_id,
+              getCallId(event?.content) !== undefined &&
+              getCallId(event?.content) === orphanId,
           );
         if (!answered) {
           parts.push({
             role: EVENT.TOOL_RESULT,
             content: {
-              call_id: orphan.call_id,
+              call_id: orphanId,
               name: orphan.name,
               result:
                 "Tool execution was interrupted by a restart before it " +

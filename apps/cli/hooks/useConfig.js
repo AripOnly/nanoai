@@ -35,34 +35,35 @@ export function useConfig() {
     }
   }, []);
 
-  useEffect(() => {
-    async function loadConfig() {
-      try {
-        const current = await api.getSettings();
-        const modelStr = typeof current?.model === "string" ? current.model : "";
-        const [currentProvider = "", currentModel = ""] = modelStr.split("/");
+  const loadConfig = useCallback(async () => {
+    try {
+      const current = await api.getSettings();
+      const modelStr = typeof current?.model === "string" ? current.model : "";
+      const [currentProvider = "", currentModel = ""] = modelStr.split("/");
 
-        const available = await api.listProviders();
-        const byProvider = {};
-        if (Array.isArray(available)) {
-          for (const entry of available) {
-            if (entry?.provider) {
-              byProvider[entry.provider] = entry.models ?? [];
-            }
+      const available = await api.listProviders();
+      const byProvider = {};
+      if (Array.isArray(available)) {
+        for (const entry of available) {
+          if (entry?.provider) {
+            byProvider[entry.provider] = entry.models ?? [];
           }
         }
-
-        setProvider(currentProvider);
-        setModel(currentModel);
-        setModels(byProvider);
-      } catch {
-        // Gateway offline: leave provider/model empty. The chat area already
-        // shows the connection error, so stay quiet here to avoid duplicates.
       }
-    }
 
-    loadConfig();
+      setProvider(currentProvider);
+      setModel(currentModel);
+      setModels(byProvider);
+      setConfigError("");
+    } catch {
+      // Gateway offline: leave provider/model empty. The chat area already
+      // shows the connection error, so stay quiet here to avoid duplicates.
+    }
   }, []);
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   return {
     model,
@@ -71,5 +72,6 @@ export function useConfig() {
     configError,
     switchModel,
     saveProviderKey,
+    reloadConfig: loadConfig,
   };
 }

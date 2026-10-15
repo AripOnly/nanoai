@@ -2,15 +2,34 @@
 
 import React, { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
+import {
+  MAX_VISIBLE_ITEMS,
+  adjustWindow,
+  nextCursor,
+  visibleSlice,
+} from "../lib/select-window.js";
 
 const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
   const [cursor, setCursor] = useState(0);
+  const [start, setStart] = useState(0);
 
   useEffect(() => {
-    if (cursor > items.length - 1) {
-      setCursor(Math.max(0, items.length - 1));
-    }
-  }, [items.length]);
+    const total = items.length;
+    const safeCursor =
+      total === 0 ? 0 : Math.min(cursor, Math.max(0, total - 1));
+    if (safeCursor !== cursor) setCursor(safeCursor);
+    setStart((prev) =>
+      adjustWindow(safeCursor, prev, total, MAX_VISIBLE_ITEMS),
+    );
+  }, [items.length, cursor]);
+
+  const move = (dir) => {
+    const total = items.length;
+    if (!total) return;
+    const next = nextCursor(cursor, dir, total);
+    setCursor(next);
+    setStart((prev) => adjustWindow(next, prev, total, MAX_VISIBLE_ITEMS));
+  };
 
   useInput(
     (input, key) => {
@@ -24,12 +43,12 @@ const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
       if (!items || items.length === 0) return;
 
       if (key.upArrow || input === "k") {
-        setCursor((prev) => (prev - 1 + items.length) % items.length);
+        move(-1);
         return;
       }
 
       if (key.downArrow || input === "j") {
-        setCursor((prev) => (prev + 1) % items.length);
+        move(1);
         return;
       }
 
@@ -40,31 +59,47 @@ const SelectInput = ({ items = [], onSelect, onCancel, isFocused = true }) => {
     { isActive: isFocused },
   );
 
+  const total = items.length;
+  const scrollable = total > MAX_VISIBLE_ITEMS;
+  const visible = scrollable
+    ? visibleSlice(items, start, MAX_VISIBLE_ITEMS)
+    : items;
+
   return (
     <Box flexDirection="column">
-      {items.map((item, index) => (
-        <Box key={item.value ?? index}>
-          <Box
-            width={"100%"}
-            paddingX={1}
-            backgroundColor={index === cursor ? "#ffa857e8" : undefined}
-            flexDirection="row"
-            flexWrap="nowrap"
-            gap={5}
-          >
-            <Box width={item?.description !== undefined ? 15 : undefined}>
-              <Text color={index === cursor ? "#111111" : undefined}>
-                {item.label}
-              </Text>
-            </Box>
-            <Box>
-              <Text color={index === cursor ? "#111111" : "#858585"}>
-                {item?.description}
-              </Text>
+      {visible.map((item, vi) => {
+        const index = scrollable ? start + vi : vi;
+        return (
+          <Box key={item.value ?? index}>
+            <Box
+              width={"100%"}
+              paddingX={1}
+              backgroundColor={index === cursor ? "#ffa857e8" : undefined}
+              flexDirection="row"
+              flexWrap="nowrap"
+              gap={5}
+            >
+              <Box width={item?.description !== undefined ? 15 : undefined}>
+                <Text color={index === cursor ? "#111111" : undefined}>
+                  {item.label}
+                </Text>
+              </Box>
+              <Box>
+                <Text color={index === cursor ? "#111111" : "#858585"}>
+                  {item?.description}
+                </Text>
+              </Box>
             </Box>
           </Box>
+        );
+      })}
+      {scrollable && (
+        <Box marginTop={1} paddingX={1}>
+          <Text color="gray">
+            {cursor + 1}/{total}
+          </Text>
         </Box>
-      ))}
+      )}
     </Box>
   );
 };

@@ -30,7 +30,7 @@ export const excelTool = {
     properties: {
       filePath: {
         type: "string",
-        description: "The .xlsx file path to create. Relative paths resolve against the workspace root.",
+        description: "The .xlsx file path to create. Relative paths resolve against the default save folder (nano-workspace); absolute paths may point anywhere.",
       },
       sheets: {
         type: "array",
@@ -73,9 +73,6 @@ function cleanCell(value, where) {
 function resolveOutputPath(filePath) {
   const root = resolveWorkspaceRoot();
   const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Path must stay inside the workspace.");
-  }
   if (!resolved.toLowerCase().endsWith(".xlsx")) {
     throw new Error("Spreadsheet output path must end with .xlsx.");
   }

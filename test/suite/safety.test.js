@@ -59,23 +59,21 @@ describe("tier-3 safety net", () => {
   });
 });
 
-describe("workspace jail", () => {
+describe("workspace default-save", () => {
   it("resolves paths inside the workspace", () => {
     const resolved = resolveWorkspacePath("package.json");
     assert.ok(resolved.endsWith("package.json"));
   });
 
-  it("blocks escapes and empty input", () => {
-    // Pin a deterministic jail: with the default home root, "../outside.txt"
-    // from the repo would still land inside home, so this pins a scratch root.
+  it("anchors relatives at the save folder but allows explicit absolute paths", () => {
     const previous = process.env.NANO_WORKSPACE;
     process.env.NANO_WORKSPACE = "C:\\pinned-jail-test";
     try {
-      assert.throws(() => resolveWorkspacePath("../outside.txt"), /workspace/);
-      assert.throws(
-        () => resolveWorkspacePath("C:\\Windows\\System32\\x"),
-        /workspace/,
-      );
+      // Relatif tetap jangkar ke default-save...
+      assert.ok(resolveWorkspacePath("inside.txt").startsWith("C:\\pinned-jail-test"));
+      // ...tapi absolut eksplisit (mis. Desktop) bebas ke mana saja.
+      assert.equal(resolveWorkspacePath("C:\\Windows\\System32\\x"), "C:\\Windows\\System32\\x");
+      assert.equal(resolveWorkspacePath("C:\\other\\file.txt"), "C:\\other\\file.txt");
     } finally {
       if (previous === undefined) {
         delete process.env.NANO_WORKSPACE;
@@ -91,13 +89,14 @@ describe("workspace jail", () => {
     const previous = process.env.NANO_WORKSPACE;
     process.env.NANO_WORKSPACE = "C:\\pinned-workspace";
     try {
-      assert.throws(
-        () => resolveWorkspacePath("C:\\other\\file.txt"),
-        /workspace/,
+      // Relatif jangkar ke root yang di-pin; absolut eksplisit tetap bebas.
+      assert.ok(
+        resolveWorkspacePath("a.txt").startsWith("C:\\pinned-workspace"),
       );
       assert.ok(
         resolveWorkspacePath("C:\\pinned-workspace\\a.txt").endsWith("a.txt"),
       );
+      assert.equal(resolveWorkspacePath("C:\\other\\file.txt"), "C:\\other\\file.txt");
     } finally {
       if (previous === undefined) {
         delete process.env.NANO_WORKSPACE;

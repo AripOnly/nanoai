@@ -137,7 +137,23 @@ async function* sse(path, body) {
   }
 }
 
+async function health() {
+  // Public probe (no token): liveness AND readiness. True = serving.
+  const root = BASE_URL.split("/api")[0];
+  try {
+    const response = await fetch(`${root}/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export function isConnectionError(error) {
+  return String(error?.message ?? "").startsWith("Cannot reach the gateway");
+}
+
 export const api = {
+  health,
   listSessions: () => request("/session/list-session"),
   getConversation: (sessionId) => request(`/session/${sessionId}`),
   getSessionInfo: (sessionId) => request(`/session/info/${sessionId}`),

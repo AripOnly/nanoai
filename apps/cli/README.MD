@@ -31,6 +31,7 @@ The CLI application provides an interactive terminal interface for communicating
 ## Custom Hooks (`hooks/`)
 
 *   **`useChat.js`**: Manages chat state, discrete session view epochs (`viewKey`), FIFO prompt queue, SSE streaming, and session switching/renaming.
+*   **`useGateway.js`**: Polls gateway `/health`, exposes connectivity, auto re-syncs on reconnect.
 *   **`useConfig.js`**: Loads and switches LLM providers and models from the gateway settings.
 *   **`useColumns.js`**: Tracks terminal width dynamically on terminal resize events.
 

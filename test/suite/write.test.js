@@ -51,11 +51,27 @@ describe("write tool: files", () => {
     assert.equal((await write("x.txt")).success, false);
   });
 
-  it("jails writes to the workspace", async () => {
+  it("writes explicit absolute paths outside the workspace (user menyebut lokasi)", async () => {
     scratchDir();
-    const result = await write({ filePath: "C:\\Windows\\Temp\\nano-evil.txt", content: "x" });
-    assert.equal(result.success, false);
-    assert.match(result.error, /workspace/);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "nano-write-out-"));
+    try {
+      const target = path.join(outside, "bebas.txt");
+      const result = await write({ filePath: target, content: "x" });
+      assert.equal(result.success, true);
+      assert.equal(fs.readFileSync(target, "utf8"), "x");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses mkdir:true on file-like paths (cegah folder bernama test.txt)", async () => {
+    scratchDir();
+    const bad = await write({ filePath: "test/test.txt", mkdir: true });
+    assert.equal(bad.success, false);
+    assert.match(bad.error, /looks like a FILE/);
+    const ok = await write({ filePath: "test/test.txt", content: "isi" });
+    assert.equal(ok.success, true);
+    assert.equal(fs.readFileSync(path.join(process.env.NANO_WORKSPACE, "test", "test.txt"), "utf8"), "isi");
   });
 });
 
@@ -116,9 +132,15 @@ describe("writeWord tool", () => {
     assert.match(ragged.error, /exactly 2/);
     const unknown = await writeWord({ filePath: "x.docx", blocks: [{ type: "poem", text: "t" }] });
     assert.equal(unknown.success, false);
-    const jailed = await writeWord({ filePath: "C:\\Windows\\Temp\\x.docx", blocks: [{ type: "paragraph", text: "t" }] });
-    assert.equal(jailed.success, false);
-    assert.match(jailed.error, /workspace/);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "nano-word-out-"));
+    try {
+      const target = path.join(outside, "bebas.docx");
+      const free = await writeWord({ filePath: target, blocks: [{ type: "paragraph", text: "t" }] });
+      assert.equal(free.success, true);
+      assert.ok(fs.existsSync(target));
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 
@@ -154,9 +176,15 @@ describe("writeExcel tool", () => {
     assert.equal(badCell.success, false);
     const longName = await writeExcel({ filePath: "x.xlsx", sheets: [{ name: "n".repeat(32), rows: [[1]] }] });
     assert.equal(longName.success, false);
-    const jailed = await writeExcel({ filePath: "C:\\Windows\\Temp\\x.xlsx", sheets: [{ rows: [[1]] }] });
-    assert.equal(jailed.success, false);
-    assert.match(jailed.error, /workspace/);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "nano-excel-out-"));
+    try {
+      const target = path.join(outside, "bebas.xlsx");
+      const free = await writeExcel({ filePath: target, sheets: [{ rows: [[1]] }] });
+      assert.equal(free.success, true);
+      assert.ok(fs.existsSync(target));
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("dispatches writers by name through toolExecute", async () => {

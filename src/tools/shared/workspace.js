@@ -10,18 +10,25 @@ import path from "path";
 const DEFAULT_WORKSPACE_DIR = "nano-workspace";
 
 /**
- * Resolve a tool-provided path and guarantee it stays inside the workspace.
- * Boot default is ~/nano-workspace (stable for 24/7 operation no matter
- * where the gateway was launched from); it is created on demand. Pin another
- * root with the NANO_WORKSPACE environment variable. Per-call `workdir` on
- * the shell tool can still point anywhere, so the agent stays flexible.
- * Throws a plain Error so tool wrappers convert it into a
- * `{ success: false, error }` result with a clear message.
+ * Resolve a tool-provided path. Boot default save folder is ~/nano-workspace
+ * (stable for 24/7 operation no matter where the gateway was launched from);
+ * it is created on demand. Pin another root with the NANO_WORKSPACE environment
+ * variable. Relative paths anchor at the save folder; absolute paths may point
+ * anywhere when the user names a location. Per-call `workdir` on the shell tool
+ * can still point anywhere, so the agent stays flexible. Throws a plain Error
+ * so tool wrappers convert it into a `{ success: false, error }` result with a
+ * clear message.
  */
 export function resolveWorkspaceRoot() {
   const configured = process.env.NANO_WORKSPACE;
   if (configured && configured.trim() !== "") {
-    return path.resolve(configured);
+    const root = path.resolve(configured);
+    try {
+      fs.mkdirSync(root, { recursive: true });
+    } catch {
+      // Creation failure surfaces later as a clear tool error, not here.
+    }
+    return root;
   }
   const root = path.join(os.homedir(), DEFAULT_WORKSPACE_DIR);
   try {
@@ -30,6 +37,10 @@ export function resolveWorkspaceRoot() {
     // Creation failure surfaces later as a clear tool error, not here.
   }
   return root;
+}
+
+export function resolveHomeDir() {
+  return os.homedir();
 }
 
 /**
@@ -60,14 +71,8 @@ export function resolveWorkspacePath(filePath) {  if (typeof filePath !== "strin
   }
 
   const root = resolveWorkspaceRoot();
-  // Relative paths anchor at the workspace root (never the launch directory),
-  // so every tool resolves the same relative path identically. Absolute paths
-  // still work when given, but must stay inside the root.
-  const resolved = path.resolve(root, path.normalize(filePath));
-
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Path must stay inside the workspace.");
-  }
-
-  return resolved;
+  // Bebas: relative paths anchor at the default save folder (never the launch
+  // directory) so every tool resolves the same relative path identically.
+  // Absolute paths may point anywhere (e.g. Desktop) when the user names a location.
+  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, path.normalize(filePath));
 }

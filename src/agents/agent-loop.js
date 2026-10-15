@@ -1,6 +1,7 @@
 // src/agent/agent.js
 
 import { EVENT } from "#src/shared/event-type.js";
+import { getCallId } from "#src/shared/call-id.js";
 import { llm } from "#src/llm/llm.js";
 import { toolExecute } from "./tool-execute.js";
 import { compaction, checkCompaction } from "./compaction.js";
@@ -61,7 +62,7 @@ export async function* agentLoop(request) {
           pendingUpdates.push({
             role: EVENT.TOOL_UPDATE,
             content: {
-              call_id: update.call_id ?? update.callId ?? tc.call_id,
+              call_id: getCallId(update) ?? tc.call_id,
               name: tc.name,
               preview: update.preview ?? "",
             },
@@ -95,10 +96,11 @@ export async function* agentLoop(request) {
     }
 
     for (let i = 0; i < toolCall.length; i++) {
+      const callId = getCallId(toolCall[i]) ?? toolCall[i].call_id;
       yield {
         role: EVENT.TOOL_RESULT,
         content: {
-          call_id: toolCall[i].call_id,
+          call_id: callId,
           name: toolCall[i].name,
           result: results[i],
           ...(toolCall[i].signature != null

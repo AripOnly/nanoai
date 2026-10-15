@@ -7,8 +7,8 @@
 // - No permission popup: nano approvals happen in conversation, and the
 //   unified diff is returned in the result so the model (and user) can review it.
 // - No formatter/LSP passes: nano has no formatter or language-server infra.
-// - Paths are jailed to the workspace like the write tool (opencode allows
-//   external paths via permission prompt, which nano does not have).
+// - Paths: relative anchors at the default save folder (nano-workspace),
+//   absolute paths may point anywhere (opencode-style freedom via explicit path).
 // - The "read before edit" rule from edit.txt cannot be enforced statelessly
 //   here; the agent instruction already tells the model to read first.
 
@@ -40,7 +40,7 @@ export const editTool = {
     properties: {
       filePath: {
         type: "string",
-        description: "The path of the file to modify. Relative paths resolve against the workspace root.",
+        description: "The path of the file to modify. Relative paths resolve against the default save folder (nano-workspace); absolute paths may point anywhere.",
       },
       oldString: {
         type: "string",
@@ -82,16 +82,12 @@ function withFileLock(filePath, task) {
 }
 
 // ---------------------------------------------------------------------------
-// Paths. Relative paths anchor at the workspace root; absolute paths must
-// stay inside it (same jail policy as the write tool).
+// Paths. Relative paths anchor at the default save folder (nano-workspace);
+// absolute paths may point anywhere (e.g. Desktop) when the user names a location.
 // ---------------------------------------------------------------------------
 function resolveEditPath(filePath) {
   const root = resolveWorkspaceRoot();
-  const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Path must stay inside the workspace.");
-  }
-  return resolved;
+  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
 }
 
 // ---------------------------------------------------------------------------

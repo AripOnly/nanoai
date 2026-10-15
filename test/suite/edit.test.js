@@ -126,11 +126,18 @@ describe("edit tool: new files and validation", () => {
     assert.ok(dir.length > 0);
   });
 
-  it("jails paths to the workspace", async () => {
+  it("edits explicit absolute paths outside the workspace (user menyebut lokasi)", async () => {
     scratchDir();
-    const result = await edit({ filePath: "C:\\Windows\\System32\\evil.txt", oldString: "a", newString: "b" });
-    assert.equal(result.success, false);
-    assert.match(result.error, /workspace/);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "nano-edit-out-"));
+    try {
+      const target = path.join(outside, "bebas.txt");
+      fs.writeFileSync(target, "hello\n", "utf8");
+      const result = await edit({ filePath: target, oldString: "hello", newString: "halo" });
+      assert.equal(result.success, true);
+      assert.equal(fs.readFileSync(target, "utf8"), "halo\n");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 

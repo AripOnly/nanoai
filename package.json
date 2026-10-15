@@ -1,6 +1,6 @@
 {
   "name": "@ariponly/nanoai",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "NanoAI — a personal AI agent on your own machine: terminal chat, gateway API with live streaming, and a workspace where it reads, writes, and organizes files for you.",
   "license": "MIT",
   "type": "module",

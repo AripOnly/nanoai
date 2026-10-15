@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { api } from "../lib/api.js";
+import { api, isConnectionError } from "../lib/api.js";
 import { clearTerminal } from "../lib/terminal.js";
+import { getCallId } from "../../../src/shared/call-id.js";
 import { nameFromPrompt } from "../../../src/shared/naming.js";
 
 export function useChat() {
@@ -28,6 +29,10 @@ export function useChat() {
     try {
       setSessions(await api.listSessions());
     } catch (error) {
+      // Gateway mati: diam saja, banner merah "Gateway not connected" yang
+      // bicara. Pesan mentah "Cannot reach the gateway..." tidak ditempel ke
+      // chat agar tidak jadi noise permanen. Error non-koneksi tetap tampil.
+      if (isConnectionError(error)) return;
       setChat((prev) => [
         ...prev,
         { role: "error", content: { message: error.message } },
@@ -109,31 +114,37 @@ export function useChat() {
           }
 
           if (event.role === "tool_update") {
-            const callId = event.content?.call_id;
+            const callId = getCallId(event.content);
             const preview = event.content?.preview ?? "";
-            setChat((prev) => {
-              const next = [...prev];
-              for (let i = next.length - 1; i >= 0; i--) {
-                const item = next[i];
-                if (item?.role === "tool_call" && item?.content?.call_id === callId) {
-                  next[i] = {
-                    ...item,
-                    content: { ...item.content, preview },
-                  };
-                  break;
+            if (callId !== undefined) {
+              setChat((prev) => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  const item = prev[i];
+                  if (item?.role === "tool_call" && getCallId(item?.content) === callId) {
+                    // Update telat setelah result / preview sama: kembalikan prev
+                    // agar tidak ada render ulang sia-sia.
+                    if (item?.content?.result !== undefined) return prev;
+                    if (item?.content?.preview === preview) return prev;
+                    const next = [...prev];
+                    next[i] = {
+                      ...item,
+                      content: { ...item.content, preview },
+                    };
+                    return next;
+                  }
                 }
-              }
-              return next;
-            });
+                return prev;
+              });
+            }
           }
 
           if (event.role === "tool_result") {
-            const callId = event.content?.call_id;
+            const callId = getCallId(event.content);
             setChat((prev) => {
               const next = [...prev];
               for (let i = next.length - 1; i >= 0; i--) {
                 const item = next[i];
-                if (item?.role === "tool_call" && item?.content?.call_id === callId) {
+                if (item?.role === "tool_call" && getCallId(item?.content) === callId) {
                   next[i] = {
                     ...item,
                     content: { ...item.content, result: event.content?.result },
@@ -301,6 +312,26 @@ export function useChat() {
     [appendError, refreshSessions],
   );
 
+  // Re-sync after a gateway outage: drop stale connection errors, reload
+  // sessions + active conversation so the UI matches the backend again
+  // without restarting the CLI.
+  const resync = useCallback(async () => {
+    setChat((prev) =>
+      prev.some((event) => event.role === "error")
+        ? prev.filter((event) => event.role !== "error")
+        : prev,
+    );
+    await refreshSessions();
+    const session = sessionRef.current;
+    if (session?.id) {
+      try {
+        await refreshConversation(session.id);
+      } catch (error) {
+        appendError(error.message);
+      }
+    }
+  }, [appendError, refreshConversation, refreshSessions]);
+
   return {
     chat,
     conversation,
@@ -315,5 +346,6 @@ export function useChat() {
     switchSession,
     deleteSession,
     renameSession,
+    resync,
   };
 }

@@ -5,12 +5,12 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { acceptable, name as shellName } from "./select.js";
 import { render } from "./prompt.js";
 import { analyzeCommand } from "./parse.js";
 import { runShell } from "./run.js";
 import { limits } from "#src/tools/shared/truncate.js";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -37,18 +37,13 @@ function buildSchema() {
 export const shellTool = buildSchema();
 
 function resolveCwd(workdir) {
-  let root;
-  try {
-    root = resolveWorkspaceRoot();
-  } catch {
-    root = process.cwd();
-  }
+  const home = os.homedir();
   if (!workdir || String(workdir).trim() === "") {
-    return root;
+    return home;
   }
   // Absolute workdir can point anywhere (flexible); relative workdir resolves
-  // against the workspace root so results don't depend on launch directory.
-  const abs = path.isAbsolute(workdir) ? path.normalize(workdir) : path.resolve(root, workdir);
+  // against the home directory (the shell starts in home).
+  const abs = path.isAbsolute(workdir) ? path.normalize(workdir) : path.resolve(home, workdir);
   const st = fs.statSync(abs, { throwIfNoEntry: false });
   if (!st?.isDirectory()) {
     throw new Error(`workdir does not exist or is not a directory: ${workdir}`);

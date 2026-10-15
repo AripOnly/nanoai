@@ -41,7 +41,7 @@ export const wordTool = {
     properties: {
       filePath: {
         type: "string",
-        description: "The .docx file path to create. Relative paths resolve against the workspace root.",
+        description: "The .docx file path to create. Relative paths resolve against the default save folder (nano-workspace); absolute paths may point anywhere.",
       },
       title: {
         type: "string",
@@ -185,9 +185,6 @@ function buildParagraph(block, index) {
 function resolveOutputPath(filePath) {
   const root = resolveWorkspaceRoot();
   const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Path must stay inside the workspace.");
-  }
   if (!resolved.toLowerCase().endsWith(".docx")) {
     throw new Error("Word output path must end with .docx.");
   }

@@ -6,6 +6,7 @@ import User from "./User.jsx";
 import Response from "./Response.jsx";
 import ToolCall from "./ToolCall.jsx";
 import { attachToolResults } from "../lib/tool-display.js";
+import { getCallId } from "../../../src/shared/call-id.js";
 
 export default function BoxChat({ chat }) {
   if (!Array.isArray(chat) || chat.length === 0) return null;
@@ -36,7 +37,9 @@ export default function BoxChat({ chat }) {
     }
 
     if (value.role === "tool_call") {
-      return <ToolCall key={index} toolCall={value.content} />;
+      // Key stabil per call_id (ala opencode part id): update preview/result
+      // menimpa baris yang sama, header tidak pernah tercetak ulang.
+      return <ToolCall key={getCallId(value.content) ?? `call-${index}`} toolCall={value.content} />;
     }
 
     if (value.role === "tool_result") {
@@ -49,7 +52,7 @@ export default function BoxChat({ chat }) {
             : JSON.stringify(result ?? "");
       return (
         <ToolCall
-          key={index}
+          key={getCallId(value.content) ?? `result-${index}`}
           toolCall={{ name: value.content?.name ?? "tool", arguments: "", preview: output }}
         />
       );

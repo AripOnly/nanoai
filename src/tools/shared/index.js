@@ -14,4 +14,4 @@ export {
 } from "./attachments.js";
 export { limits, preview, tail, truncateOutput, writeTruncation } from "./truncate.js";
 export { rgGlob, rgGrep, resolveRgBinary, runRg } from "./rg.js";
-export { resolveWorkspacePath, resolveWorkspaceRoot, suggestSimilarPaths } from "./workspace.js";
+export { resolveWorkspacePath, resolveWorkspaceRoot, resolveHomeDir, suggestSimilarPaths } from "./workspace.js";

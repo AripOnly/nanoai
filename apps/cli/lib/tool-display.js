@@ -3,6 +3,7 @@
 // One-line display value for a tool call, rendered after "name: " in the CLI
 // (e.g. "read: package.json"). Plain JS on purpose: unit-tested with node:test
 // (JSX components cannot run under plain node).
+import { getCallId } from "../../../src/shared/call-id.js";
 
 // First present key wins: every tool's most informative argument comes first.
 // Note: `pattern` outranks `path` so grep/glob show the pattern; their
@@ -75,27 +76,44 @@ export function formatToolTarget(toolName, argumentsValue) {
  */
 export function attachToolResults(chat) {
   if (!Array.isArray(chat)) return chat;
-  const merged = chat.map((item) =>
-    item?.role === "tool_call" ? { ...item, content: { ...(item.content ?? {}) } } : item,
-  );
+  // Index calls by normalized id (call_id/callId). Only calls that actually
+  // absorb a result are cloned, so unchanged rows keep their identity and
+  // React/Ink does not re-render the whole list on every streaming update.
   const callIndexById = new Map();
-  merged.forEach((item, index) => {
-    const id = item?.content?.call_id;
+  chat.forEach((item, index) => {
+    const id = getCallId(item?.content);
     if (item?.role === "tool_call" && id !== undefined && !callIndexById.has(id)) {
       callIndexById.set(id, index);
     }
   });
-  const consumed = new Set();
-  merged.forEach((item, index) => {
-    if (item?.role !== "tool_result" || item?.content?.call_id === undefined) return;
-    const target = callIndexById.get(item.content.call_id);
-    // Only merge into an EARLIER call (results always follow their call).
+  const consumedResult = new Set();
+  const resultByCall = new Map();
+  chat.forEach((item, index) => {
+    if (item?.role !== "tool_result") return;
+    const id = getCallId(item?.content);
+    if (id === undefined) return;
+    const target = callIndexById.get(id);
+    // Only merge into an EARLIER call (results always follow their call);
+    // first matching result wins, extras stay as orphans.
     if (target === undefined || target > index) return;
-    consumed.add(index);
-    const call = merged[target];
-    merged[target] = { ...call, content: { ...call.content, result: item.content?.result } };
+    if (resultByCall.has(target)) return;
+    resultByCall.set(target, item.content?.result);
+    consumedResult.add(index);
   });
-  return merged.filter((_, index) => !consumed.has(index));
+  if (resultByCall.size === 0) return chat;
+  const out = [];
+  chat.forEach((item, index) => {
+    if (item?.role === "tool_result") {
+      if (!consumedResult.has(index)) out.push(item);
+      return;
+    }
+    if (item?.role === "tool_call" && resultByCall.has(index)) {
+      out.push({ ...item, content: { ...(item.content ?? {}), result: resultByCall.get(index) } });
+      return;
+    }
+    out.push(item);
+  });
+  return out;
 }
 
 /**

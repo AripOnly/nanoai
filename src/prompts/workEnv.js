@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
+import { resolveHomeDir, resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
 
 const platform = process.platform;
 
@@ -22,13 +22,20 @@ function defaultShell() {
 const shell = defaultShell();
 
 export function getWorkEnv() {
-  let location;
-  try {
-    location = resolveWorkspaceRoot();
-  } catch {
-    location = process.cwd();
-  }
   const home = os.homedir();
+  let location = home;
+  try {
+    const h = resolveHomeDir();
+    if (h && h.trim() !== "") location = h;
+  } catch {
+    location = home;
+  }
+  let saveDir = location;
+  try {
+    saveDir = resolveWorkspaceRoot();
+  } catch {
+    saveDir = path.join(home, "nano-workspace");
+  }
   const desktop = path.join(home, "Desktop");
   let desktopLine = "";
   try {
@@ -45,11 +52,14 @@ export function getWorkEnv() {
 - Shell: ${shell}
 - Your Current Location: ${location}
 - Home directory: ${home}${desktopLine}
+- Default save location: ${saveDir} (use this when the user asks to create a file or folder without mentioning a path)
 - You can work in other directories when needed by using the \`workdir\` parameter.
 
 # Path strategy (follow strictly):
 
-- Prefer ABSOLUTE paths in every tool call. Relative paths resolve against Your Current Location above.
+- Prefer ABSOLUTE paths in every tool call. Relative paths resolve against the default save location above (nano-workspace), never against the launch directory.
+- When the user does NOT mention a path, save to the default save location above (e.g. "catatan.txt" -> default-save/catatan.txt, "docs/a.txt" -> default-save/docs/a.txt).
+- When the user DOES mention a path, follow it exactly with an absolute path (read, write, edit, search, and shell all honor explicit absolute paths, e.g. Desktop).
 - Search results always state WHERE they searched. If a search or read finds nothing, do not blindly retry other patterns:
   first check the searched directory, then retry once with the absolute location (e.g. under the home/Desktop folders above).
 - Never invent a relative prefix for a project you cannot see (like "nanoai/**/..." out of thin air).

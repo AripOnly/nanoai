@@ -9,7 +9,8 @@
 // - Partial edits belong to the edit tool; write always replaces whole files.
 // - Adds an explicit `mkdir` mode because nano has no other folder-creation
 //   tool besides shell; parent directories are always created as needed.
-// - Paths are jailed to the workspace (same policy as the edit tool).
+// - Relative paths anchor at the default save folder (nano-workspace);
+//   absolute paths may point anywhere when the user names a location.
 
 import path from "node:path";
 import fs from "node:fs";
@@ -27,7 +28,8 @@ export const writeTool = {
     "This tool will overwrite the existing file if there is one at the provided path. " +
     "If this is an existing file, you MUST use the read tool first to read the file's contents. " +
     "ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required. " +
-    "Set mkdir to true to create a directory instead of a file (content is ignored). " +
+    "Set mkdir to true ONLY to create a directory (a path with NO file extension, e.g. 'test' or 'docs'). " +
+    "To create a FILE (e.g. 'test.txt', 'test/test.txt'), OMIT mkdir (or set false) and provide content. " +
     "Parent directories are created automatically. " +
     "NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested. " +
     "Only use emojis if explicitly requested.",
@@ -37,7 +39,7 @@ export const writeTool = {
     properties: {
       filePath: {
         type: "string",
-        description: "The file or directory path to write. Relative paths resolve against the workspace root.",
+        description: "The file or directory path to write. Relative paths resolve against the default save folder (nano-workspace); absolute paths may point anywhere.",
       },
       content: {
         type: "string",
@@ -45,7 +47,7 @@ export const writeTool = {
       },
       mkdir: {
         type: "boolean",
-        description: "Create a directory (including parents) instead of writing a file.",
+        description: "Set true ONLY for directories (no file extension). Omit/false for files.",
       },
     },
     required: ["filePath"],
@@ -58,11 +60,9 @@ function fail(error) {
 
 function resolveWritePath(filePath) {
   const root = resolveWorkspaceRoot();
-  const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error("Path must stay inside the workspace.");
-  }
-  return resolved;
+  // Bebas: relatif jangkar ke default-save (nano-workspace), absolut boleh ke mana saja
+  // (mis. Desktop) saat user menyebut lokasi eksplisit.
+  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
 }
 
 export async function write(params = {}, context = {}) {
@@ -90,6 +90,14 @@ export async function write(params = {}, context = {}) {
     }
 
     if (makeDir === true) {
+      // Pengaman: path ber-ekstensi file (test.txt) + mkdir:true = pasti salah paham model.
+      // Tolak dengan pesan jelas, bukan diam-diam bikin folder bernama "test.txt".
+      if (/\.(txt|md|markdown|json|js|jsx|ts|tsx|py|docx|xlsx|xls|csv|html|css|log)$/i.test(path.basename(filePath))) {
+        return fail(
+          `Parameter 'mkdir' is true but filePath '${filePath}' looks like a FILE (has a file extension). ` +
+            "To create a file, omit 'mkdir' (or set false) and provide 'content'. Use mkdir:true only for directories (no extension).",
+        );
+      }
       try {
         await mkdir(resolved, { recursive: true });
       } catch (error) {

@@ -2,8 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, useApp, Static, Text } from "ink";
+import os from "node:os";
 
 import { useChat } from "./hooks/useChat.js";
+import { useGateway } from "./hooks/useGateway.js";
 import { useConfig } from "./hooks/useConfig.js";
 import { useColumns } from "./hooks/useColumns.js";
 import { api } from "./lib/api.js";
@@ -34,9 +36,17 @@ export default function App({ onExitRequest }) {
     switchSession,
     deleteSession,
     renameSession,
+    resync,
   } = useChat();
 
-  const { provider, model, models, configError, switchModel, saveProviderKey } =
+  const { connected: gatewayConnected } = useGateway({
+    onReconnect: async () => {
+      await resync();
+      await reloadConfig();
+    },
+  });
+
+  const { provider, model, models, configError, switchModel, saveProviderKey, reloadConfig } =
     useConfig();
   const [token, setToken] = useState(0);
 
@@ -44,7 +54,7 @@ export default function App({ onExitRequest }) {
     () => [
       <Banner key={`banner-${viewKey}`} />,
       ...attachToolResults(conversation).map((item, i) => (
-        <BoxChat key={`h-${item?.content?.call_id ?? item?.id ?? i}`} chat={[item]} />
+        <BoxChat key={`h-${item?.content?.call_id ?? item?.content?.callId ?? item?.id ?? i}`} chat={[item]} />
       )),
     ],
     [viewKey, conversation],
@@ -54,6 +64,15 @@ export default function App({ onExitRequest }) {
     <Text color="#FFA500">
       <Spinner type="dotsCircle" />
       {" Loading..."}
+    </Text>
+  );
+
+  // Path aktif saat ini (home, sama dengan Current Location agent).
+  // Idle -> tampil path; stream/prompt terkirim (loading) -> tampil spinner.
+  const activePath = useMemo(() => os.homedir(), []);
+  const boxActivePath = (
+    <Text color="gray" wrap="truncate-end">
+      {activePath}
     </Text>
   );
 
@@ -99,6 +118,14 @@ export default function App({ onExitRequest }) {
           <Box width={"100%"}>{thinking && <Thinking />}</Box>
         </Box>
 
+        {!gatewayConnected && (
+          <Box marginTop={1} paddingX={2}>
+            <Text color="red">
+              Gateway not connected — start it with: nanoai gateway start. Retrying…
+            </Text>
+          </Box>
+        )}
+
         <PromptInput
           onSend={send}
           onExit={handleExit}
@@ -122,7 +149,7 @@ export default function App({ onExitRequest }) {
           flexWrap="nowrap"
           justifyContent="space-between"
         >
-          <Box>{loading ? boxLoading : ""}</Box>
+          <Box>{loading ? boxLoading : boxActivePath}</Box>
           <Box flexDirection="row" flexWrap="nowrap" gap={2}>
             {configError ? <Text color="red">{configError}</Text> : null}
             {queuedCount > 0 ? <Text color="yellow">antrean: {queuedCount}</Text> : null}
