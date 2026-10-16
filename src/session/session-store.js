@@ -84,8 +84,8 @@ class SessionStore {
     if (!state) return;
 
     // TOKEN events live in the session.token column, not in turns.
-    // TOOL_UPDATE is transient live preview for the user (opencode ctx.metadata
-    // equivalent): streamed over SSE but never persisted and never sent to LLM.
+    // TOOL_UPDATE is transient live preview for the user: streamed over SSE
+    // but never persisted and never sent to LLM.
     if (event.role === EVENT.TOKEN) return;
     if (event.role === EVENT.TOOL_UPDATE) return;
 

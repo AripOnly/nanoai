@@ -1,7 +1,6 @@
 // src/tools/web/fetch.js
 //
-// Direct URL fetcher. Ported from opencode's
-// packages/opencode/src/tool/webfetch.ts (read-only reference).
+// Direct URL fetcher (page content to text/markdown/HTML).
 //
 // Unlike nano's old Serper-based scraper (API key + credits per call), this
 // fetches pages directly: no key, no quota. HTML becomes markdown (turndown)
@@ -300,7 +299,7 @@ export async function webFetch(params = {}, context = {}) {
     let { response, url: current } = fetched;
     if (!response.ok) {
       // Cloudflare sometimes challenges non-browser TLS fingerprints with a
-      // 403; retry once with an honest bot UA, exactly like opencode does.
+      // 403; retry once with an honest bot UA.
       const mitigated = response.headers.get("cf-mitigated");
       if (response.status === 403 && mitigated === "challenge") {
         response = await fetchWithTimeout(current, { ...headers, "User-Agent": "nano-agent/1.0" }, timeoutMs, context.signal);

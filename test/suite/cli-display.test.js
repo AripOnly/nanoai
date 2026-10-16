@@ -3,7 +3,7 @@
 // "name: target" one-liner per tool plus preview trimming.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { attachToolResults, formatPreview, formatToolTarget } from "../../apps/cli/lib/tool-display.js";
+import { attachToolResults, formatPreview, formatToolTarget, formatToolError } from "../../apps/cli/lib/tool-display.js";
 
 describe("formatToolTarget", () => {
   it("shows name-relevant values per tool", () => {
@@ -71,6 +71,24 @@ describe("attachToolResults", () => {
   it("passes through non-arrays", () => {
     assert.equal(attachToolResults(null), null);
     assert.deepEqual(attachToolResults([]), []);
+  });
+});
+
+describe("formatToolError", () => {
+  it("shows nothing except failures", () => {
+    assert.equal(formatToolError({ name: "read" }), "");
+    assert.equal(formatToolError({ name: "read", preview: "x" }), "");
+    assert.equal(formatToolError({ name: "read", result: { success: true, output: "isi" } }), "");
+    assert.equal(formatToolError({ name: "read", result: "string mentah" }), "");
+    assert.equal(formatToolError({ name: "read", result: { success: false } }), "");
+    assert.equal(formatToolError({ name: "read", result: { success: false, error: "  " } }), "");
+  });
+
+  it("shows failures in red-body form", () => {
+    assert.equal(
+      formatToolError({ name: "webSearch", result: { success: false, error: "Network timeout" } }),
+      "Error: Network timeout",
+    );
   });
 });
 

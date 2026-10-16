@@ -1,5 +1,5 @@
 // src/tools/shell/parse.js
-// Command analysis, ported from opencode packages/opencode/src/tool/shell.ts
+// Command analysis with blocklists and structured scan sets
 // (CWD/FILES sets, expand/provider/dynamic/prefix/pathArgs) + nano HARD_BLOCKS.
 // Plain JS tokenizer (no tree-sitter WASM yet), splits chains then tokens.
 
@@ -232,7 +232,7 @@ function shellKind(shellPath) {
 /**
  * Analyze a shell command before execution.
  * Keeps old analyze.js return shape for safety.test.js compat,
- * plus opencode-style scan { dirs, patterns, always, paths }.
+ * plus a structured scan { dirs, patterns, always, paths }.
  */
 export function analyzeCommand(command, cwd = process.cwd(), shell = "") {
   if (typeof command !== "string" || command.trim() === "") {

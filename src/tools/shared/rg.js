@@ -1,7 +1,6 @@
 // src/tools/rg.js
 //
-// Shared ripgrep runner. Ported from opencode's packages/core/src/ripgrep.ts
-// and packages/core/src/ripgrep/binary.ts (read-only reference).
+// Shared ripgrep runner (external `rg` binary + pinned download fallback).
 //
 // ripgrep ("rg") is an external search executable, not a JS library. Both the
 // glob tool (file names) and the grep tool (file contents) spawn it as a
@@ -10,7 +9,7 @@
 // Binary resolution order:
 //   1. System `rg` on PATH.
 //   2. Cached download under the per-user data dir (~/.nanoai/bin).
-//   3. Download pinned release v15.1.0 from GitHub (same version as opencode).
+//   3. Download pinned release v15.1.0 from GitHub.
 // The download URL is a hardcoded constant; no user input ever reaches it.
 
 import { spawn } from "node:child_process";
@@ -23,7 +22,6 @@ import { dataDir } from "#src/shared/data-dir.js";
 const RG_VERSION = "15.1.0";
 
 // Maps Node's arch-platform pairs to ripgrep release asset names.
-// Kept in sync with the platforms opencode supports.
 const PLATFORM_ASSETS = {
   "arm64-darwin": { asset: "aarch64-apple-darwin", extension: "tar.gz" },
   "arm64-linux": { asset: "aarch64-unknown-linux-gnu", extension: "tar.gz" },
@@ -38,7 +36,7 @@ const ERROR_BYTES = 8 * 1024;
 const MAX_RECORD_BYTES = 64 * 1024;
 const MAX_LINE_CHARS = 2_000;
 // Hard ceiling so a hung ripgrep can never leak a child process forever on a
-// 24/7 agent. Opencode relies on caller abort only; nano adds this backstop.
+// 24/7 agent, in addition to caller abort.
 const INTERNAL_TIMEOUT_MS = 60_000;
 
 // Per-user binary cache (three levels up was the old repo-relative layout;
@@ -323,7 +321,7 @@ function normalizeRelative(line) {
 }
 
 /**
- * List files matching a glob pattern (opencode: rg --files --glob).
+ * List files matching a glob pattern (rg --files --glob).
  * Returns { files: string[] } with forward-slash relative paths.
  */
 export async function rgGlob({ cwd, pattern, limit = 100, signal }) {
@@ -353,7 +351,7 @@ export async function rgGlob({ cwd, pattern, limit = 100, signal }) {
 }
 
 /**
- * Search file contents with a regex (opencode: rg --json).
+ * Search file contents with a regex (rg --json).
  * Returns { matches: Array<{ path, line, text }> } with relative paths.
  * An invalid regex resolves to a failure result (not a throw) so callers can
  * surface "pattern is invalid" distinctly from execution errors.

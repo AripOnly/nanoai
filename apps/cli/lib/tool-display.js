@@ -119,6 +119,7 @@ export function attachToolResults(chat) {
 /**
  * Trim a live output preview or final result for one-line-ish display:
  * last 8 lines, at most 600 chars with an ellipsis head.
+ * (Kept for tests/history tooling; the live UI no longer shows result bodies.)
  */
 export function formatPreview(value) {
   if (value === undefined || value === null) return "";
@@ -126,5 +127,24 @@ export function formatPreview(value) {
   const lines = text.split("\n").slice(-8);
   const joined = lines.join("\n");
   return joined.length > 600 ? "...\n" + joined.slice(-600) : joined;
+}
+
+/**
+ * UI minimal: hanya error tool yang boleh tampil di bawah header call.
+ * Sukses / preview / tanpa result -> "" (header saja). Bentuk error
+ * dijamin backend: { success: false, error: string } via fail()/toolExecute.
+ */
+export function formatToolError(toolCall) {
+  const result = toolCall?.result;
+  if (
+    result &&
+    typeof result === "object" &&
+    result.success === false &&
+    typeof result.error === "string" &&
+    result.error.trim() !== ""
+  ) {
+    return `Error: ${result.error.trim()}`;
+  }
+  return "";
 }
 

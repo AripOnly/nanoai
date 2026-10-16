@@ -1,14 +1,13 @@
 // src/tools/edit.js
 //
-// Exact string replacement in files. Ported from opencode's
-// packages/opencode/src/tool/edit.ts (read-only reference).
+// Exact string replacement in files.
 //
-// Differences from opencode (documented, not accidental):
+// Design differences (documented, not accidental):
 // - No permission popup: nano approvals happen in conversation, and the
 //   unified diff is returned in the result so the model (and user) can review it.
 // - No formatter/LSP passes: nano has no formatter or language-server infra.
 // - Paths: relative anchors at the default save folder (nano-workspace),
-//   absolute paths may point anywhere (opencode-style freedom via explicit path).
+//   absolute paths may point anywhere when the user names a location.
 // - The "read before edit" rule from edit.txt cannot be enforced statelessly
 //   here; the agent instruction already tells the model to read first.
 
@@ -18,7 +17,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createTwoFilesPatch, diffLines } from "diff";
 import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
 
-// Similarity threshold for fuzzy block matching (same value as opencode).
+// Similarity threshold for fuzzy block matching.
 const SIMILARITY_THRESHOLD = 0.65;
 
 export const editTool = {
@@ -64,9 +63,9 @@ function fail(error) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-file mutex. Port of opencode's Semaphore-per-path: concurrent edits to
-// the same file are serialized through a promise chain so read-modify-write
-// cycles never interleave and lose each other's changes.
+// Per-file mutex. Concurrent edits to the same file are serialized through
+// a promise chain so read-modify-write cycles never interleave and lose
+// each other's changes.
 // ---------------------------------------------------------------------------
 const locks = new Map();
 

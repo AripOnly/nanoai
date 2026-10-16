@@ -1,5 +1,5 @@
 // test/suite/tool-call-id.test.js
-// Opencode-style: 1 baris per tool call, result menempel di tempat via ID
+// Satu baris per tool call, result menempel di tempat via ID
 // yang dinormalisasi (call_id/callId). Tidak boleh ada orphan ganda.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -16,7 +16,7 @@ describe("getCallId", () => {
   });
 });
 
-describe("attachToolResults (opencode-style single row)", () => {
+describe("attachToolResults (single row per call)", () => {
   it("merges 2 parallel calls with their results, no orphans", () => {
     const chat = [
       { role: "tool_call", content: { call_id: "a", name: "read", arguments: {} } },

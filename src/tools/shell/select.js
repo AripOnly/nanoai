@@ -1,5 +1,5 @@
 // src/tools/shell/select.js
-// Shell selection, ported from opencode packages/core/src/shell.ts (read-only reference).
+// Shell executable selection with platform fallback.
 // Plain JS, no Effect. Resolves an acceptable shell executable for this platform.
 
 import path from "node:path";
@@ -125,7 +125,7 @@ function select(file, opts) {
 
 export function gitbash() {
   if (process.platform !== "win32") return undefined;
-  if (process.env.OPENCODE_GIT_BASH_PATH) return process.env.OPENCODE_GIT_BASH_PATH;
+  if (process.env.NANO_GIT_BASH_PATH) return process.env.NANO_GIT_BASH_PATH;
   const git = whichShell("git");
   if (!git) return undefined;
   const file = path.join(git, "..", "..", "bin", "bash.exe");

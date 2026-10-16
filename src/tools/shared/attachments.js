@@ -21,11 +21,10 @@ export const ATTACH_DIR = path.join(dataDir(), "attachments");
 // Conservative per-file cap: the Gemini inline limit is 20MB. Larger files
 // are refused with guidance instead of failing obscurely at the API.
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-// Best-effort retention for the attachment cache (same window as opencode's
-// truncation retention).
+// Best-effort 7-day retention for the attachment cache.
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Image types the model accepts inline (matches opencode's supported list).
+// Image types the model accepts inline.
 export const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 function extensionForMime(mime) {

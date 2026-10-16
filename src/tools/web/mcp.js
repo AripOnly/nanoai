@@ -1,8 +1,7 @@
 // src/tools/web/mcp.js
 //
-// Minimal JSON-RPC client for the MCP search providers opencode uses
-// (read-only reference: packages/opencode/src/tool/mcp-websearch.ts and
-// the provider wiring in websearch.ts).
+// Minimal JSON-RPC client for MCP search providers
+// (JSON-RPC tools/call over HTTP, single JSON body or SSE).
 //
 // Providers:
 // - Exa (web_search_exa): balanced/deep/fast search with live crawling.
@@ -15,7 +14,7 @@ const EXA_URL = process.env.EXA_API_KEY
   : "https://mcp.exa.ai/mcp";
 const PARALLEL_URL = "https://search.parallel.ai/mcp";
 
-// Same 25 second budget as opencode: search must stay interactive.
+// 25 second budget: search must stay interactive.
 const PROVIDER_TIMEOUT_MS = 25_000;
 
 
@@ -105,7 +104,7 @@ export async function callMcpTool({ url, tool, args, timeoutMs = PROVIDER_TIMEOU
 }
 
 // Deterministic 50/50 split so one session sticks to one provider.
-// Any stable string hash works; exact opencode checksum parity is unnecessary.
+// Any stable string hash works; no external parity needed.
 function hashSession(sessionID) {
   let hash = 0;
   for (let i = 0; i < sessionID.length; i++) {
@@ -116,7 +115,7 @@ function hashSession(sessionID) {
 
 /**
  * Pick a search provider: explicit NANO_WEBSEARCH_PROVIDER override first,
- * otherwise a stable per-session split (same idea as opencode's checksum).
+ * otherwise a stable per-session split via checksum.
  */
 export function selectProvider(sessionID) {
   const override = process.env.NANO_WEBSEARCH_PROVIDER;

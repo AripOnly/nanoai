@@ -28,7 +28,7 @@ export function dashboardUrl(port = DEFAULT_PORT) {
 
 /**
  * Parse `nano` arguments (without node/bin prefix) into a command.
- * Bare invocation prints help, like git/docker/opencode.
+ * Bare invocation prints help, like git/docker.
  */
 export function parseArgs(argv = []) {
   const words = argv.map((word) => String(word));

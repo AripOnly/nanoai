@@ -37,7 +37,7 @@ export default function BoxChat({ chat }) {
     }
 
     if (value.role === "tool_call") {
-      // Key stabil per call_id (ala opencode part id): update preview/result
+      // Key stabil per call_id: update preview/result menimpa baris yang sama,
       // menimpa baris yang sama, header tidak pernah tercetak ulang.
       return <ToolCall key={getCallId(value.content) ?? `call-${index}`} toolCall={value.content} />;
     }

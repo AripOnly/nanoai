@@ -1,9 +1,8 @@
 // src/tools/write/write.js
 //
-// Full-file writer with directory creation. Ported from opencode's
-// packages/opencode/src/tool/write.ts (read-only reference).
+// Full-file writer with directory creation.
 //
-// Differences from opencode (documented, not accidental):
+// Design differences (documented, not accidental):
 // - No permission popup and no formatter/LSP passes (no such infra in nano).
 // - The unified diff is returned in the result so changes stay reviewable.
 // - Partial edits belong to the edit tool; write always replaces whole files.

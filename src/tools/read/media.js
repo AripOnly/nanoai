@@ -1,8 +1,7 @@
 // src/tools/read/media.js
 //
-// Media sniffing for the read tool. Sniffing rules mirror opencode's media
-// utils + read binary detection: magic bytes first, file extension second,
-// content heuristic last.
+// Media sniffing for the read tool. Detection order: magic bytes first,
+// file extension second, content heuristic last.
 //
 // Attachment *storage* lives in shared/attachments.js (used by read, webfetch
 // and the LLM provider); this module only classifies bytes, so read-side
@@ -53,7 +52,7 @@ export function sniffMediaMime(sample) {
 /**
  * Decide whether a file is binary. Extension blocklist first (cheap),
  * then content heuristic on the sample: any NUL byte, or more than 30%
- * non-printable bytes (same 0.3 threshold as opencode).
+ * non-printable bytes (0.3 threshold).
  */
 export function isBinaryFile(filePath, sample) {
   if (BINARY_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return true;

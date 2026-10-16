@@ -50,7 +50,7 @@ export async function* agentLoop(request) {
     }
 
     if (toolCall.length === 0) break;
-    // Dual-channel streaming (opencode-style):
+    // Dual-channel streaming:
     // - live previews yield TOOL_UPDATE for the user (transient, not persisted)
     // - final values yield TOOL_RESULT for the LLM + history.
     const pendingUpdates = [];

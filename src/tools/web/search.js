@@ -1,8 +1,8 @@
 // src/tools/web/search.js
 //
-// Web search via the same MCP providers opencode uses (Exa / Parallel).
+// Web search via MCP providers (Exa / Parallel).
 // Unlike snippet APIs, these return LLM-optimized page content, which is why
-// opencode's search answers are richer than nano's old Serper integration.
+// search answers are richer than nano's old Serper integration.
 
 import { providerLabel, searchExa, searchParallel, selectProvider } from "./mcp.js";
 

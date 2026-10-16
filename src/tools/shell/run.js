@@ -1,5 +1,5 @@
 // src/tools/shell/run.js
-// Execution engine, ported from opencode packages/opencode/src/tool/shell.ts run().
+// Streaming execution engine with timeout and incremental output.
 // Dual-channel streaming:
 // - to user (live): onUpdate({ preview }) called per chunk, capped at 30k tail.
 // - to LLM (final): truncated tail + outputPath + exit/timedOut/aborted metadata.

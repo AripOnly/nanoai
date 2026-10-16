@@ -1,7 +1,6 @@
 // src/tools/truncate.js
-// Shared truncation helper, ported from opencode's truncate + shell tail logic.
+// Shared truncation helper for shell tail output and previews.
 // Moved here from src/tools/shell/truncate.js so all tools can reuse it.
-// Opencode is read-only reference, this file is the nano implementation.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -24,7 +23,6 @@ function byteLength(text) {
 
 /**
  * Keep the last part of the output (tail), UTF-8 safe.
- * Port of opencode packages/opencode/src/tool/shell.ts tail().
  */
 export function tail(text, maxLines, maxBytes) {
   const resolvedLines = maxLines ?? DEFAULT_MAX_LINES;
@@ -61,7 +59,6 @@ export function tail(text, maxLines, maxBytes) {
 
 /**
  * Live preview for streaming UI, keeps last MAX_METADATA_LENGTH chars.
- * Port of opencode shell.ts preview().
  */
 export function preview(text) {
   if (text.length <= MAX_METADATA_LENGTH) return text;

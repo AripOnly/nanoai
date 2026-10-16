@@ -1,7 +1,6 @@
 // src/tools/shell/shell.js
-// Rebuilt to follow opencode's shell tool rules (read-only reference:
-// packages/opencode/src/tool/shell.ts + shell/prompt.ts + core/src/shell.ts).
-// Name stays "shell" for nanoai compat, description + JSON schema follow opencode.
+// Shell tool: streaming execution with timeouts, previews, and a safety net.
+// Name stays "shell" for nanoai compat.
 
 import path from "node:path";
 import fs from "node:fs";

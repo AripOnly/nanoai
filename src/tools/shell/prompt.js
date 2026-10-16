@@ -1,7 +1,6 @@
 // src/tools/shell/prompt.js
-// Description + JSON schema, ported from opencode
-// packages/opencode/src/tool/shell/prompt.ts + shell.txt (read-only reference).
-// Tool name stays "shell" for nanoai compat, content follows opencode.
+// Shell tool description + JSON schema.
+// Tool name stays "shell" for nanoai compat.
 
 import os from "node:os";
 

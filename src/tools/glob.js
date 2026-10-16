@@ -1,11 +1,9 @@
 // src/tools/glob.js
 //
-// Fast file-pattern search. Ported from opencode's
-// packages/opencode/src/tool/glob.ts (read-only reference).
+// Fast file-pattern search over the workspace.
 //
-// Opencode asks a permission prompt before searching; nano has no popup
-// permission system (approval happens in conversation), and listing file
-// names is read-only, so this tool runs directly like the read tool.
+// Nano has no popup permission system (approval happens in conversation),
+// and listing file names is read-only, so this tool runs directly like the read tool.
 
 import path from "node:path";
 import fs from "node:fs";
