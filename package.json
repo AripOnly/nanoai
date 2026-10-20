@@ -39,7 +39,10 @@
     "build:web": "npm run build --prefix apps/web",
     "prepack": "npm run build:web",
     "start": "node gateway/server.js",
-    "test": "node --test --import ./test/setup.js test/suite/*.test.js",
+    "test": "node --test --import ./test/setup.js \"test/suite/*.test.js\" \"test/contracts/*.test.js\" \"test/integration/*.test.js\"",
+    "test:suite": "node --test --import ./test/setup.js \"test/suite/*.test.js\"",
+    "test:contracts": "node --test --import ./test/setup.js \"test/contracts/*.test.js\"",
+    "test:integration": "node --test --import ./test/setup.js \"test/integration/*.test.js\"",
     "doctor": "node scripts/doctor.mjs",
     "backup": "node scripts/backup.mjs",
     "restore": "node scripts/restore.mjs"
