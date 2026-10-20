@@ -200,6 +200,7 @@ describe("gateway import contracts", () => {
       "renameSession",
       "deleteSession",
       "recoverInterruptedTurns",
+      "isSessionBusy",
     ]) {
       assert.equal(typeof door[name], "function", `door must export ${name}`);
     }
@@ -208,12 +209,14 @@ describe("gateway import contracts", () => {
       Object.keys(door).sort(),
       [
         "STORAGE_DIR",
+        "SessionBusyError",
         "closeDatabase",
         "createSession",
         "deleteSession",
         "getConversation",
         "getSession",
         "getSessionInfo",
+        "isSessionBusy",
         "listSessions",
         "ping",
         "recoverInterruptedTurns",
@@ -222,12 +225,19 @@ describe("gateway import contracts", () => {
     );
   });
 
-  it("keeps the agents door minimal (run + roster)", async () => {
+  it("keeps the agents door minimal (run + public roster)", async () => {
     const door = await import("../../src/agents/index.js");
     assert.equal(typeof door.agent, "function");
+    assert.equal(typeof door.getAgent, "function");
     assert.equal(typeof door.hasAgent, "function");
     assert.equal(typeof door.listAgentNames, "function");
     assert.ok(door.listAgentNames().includes("nano"));
     assert.equal(door.hasAgent("raksasa"), false);
+    assert.equal(
+      door.hasAgent("compaction"),
+      false,
+      "internal subagents must not be publicly addressable",
+    );
+    assert.equal(door.getAgent("plan").mode, "primary");
   });
 });

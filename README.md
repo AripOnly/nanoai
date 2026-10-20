@@ -88,6 +88,7 @@ the code. Environment variables (all optional):
 | `NANO_WEBSEARCH_PROVIDER` | per-session split              | `exa` or `parallel` to pin web search    |
 | `NANO_GATEWAY_URL`        | `http://localhost:3060/api/v1` | Gateway address for the CLI              |
 | `PORT`                    | `3060`                         | Gateway listen port                      |
+| `HOST`                    | `127.0.0.1`                    | Gateway bind address (loopback default)  |
 | `EXA_API_KEY`             | —                              | Optional: higher web-search limits       |
 
 For 24/7 operation, run the gateway as a system service (Task Scheduler on

@@ -55,7 +55,6 @@ export const writeTool = {
 // fail() lives in #src/tools/shared/fail.js (imported above).
 
 export async function write(params = {}, context = {}) {
-  void context;
   try {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return fail("Parameters must be an object with 'filePath', optional 'content' and 'mkdir'.");
@@ -73,7 +72,7 @@ export async function write(params = {}, context = {}) {
 
     let resolved;
     try {
-      resolved = resolveWorkspacePath(filePath);
+      resolved = resolveWorkspacePath(filePath, context.policy);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

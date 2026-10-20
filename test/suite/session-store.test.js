@@ -117,7 +117,10 @@ describe("session-store", () => {
     });
     // No commit: simulates a crash mid-turn.
 
-    assert.equal(sessionStore.recoverInterruptedTurns(id), 1);
+    assert.equal(
+      sessionStore.recoverInterruptedTurns(id, { includeActive: true }),
+      1,
+    );
 
     const conversation = sessionStore.getConversation(id);
     const roles = conversation.map((e) => e.role);
@@ -139,7 +142,10 @@ describe("session-store", () => {
   it("resumes with a fresh turn after recovery", async () => {
     const id = await makeSession();
     sessionStore.start(id, "user", "first");
-    assert.equal(sessionStore.recoverInterruptedTurns(id), 1);
+    assert.equal(
+      sessionStore.recoverInterruptedTurns(id, { includeActive: true }),
+      1,
+    );
 
     sessionStore.start(id, "user", "second");
     sessionStore.record(id, { role: "assistant", content: { text: "ok" } });
@@ -155,7 +161,9 @@ describe("session-store", () => {
   it("recoverAllInterruptedTurns sweeps every session", async () => {
     const id = await makeSession();
     sessionStore.start(id, "user", "abandoned");
-    const recovered = sessionStore.recoverAllInterruptedTurns();
+    const recovered = sessionStore.recoverAllInterruptedTurns({
+      includeActive: true,
+    });
     assert.ok(recovered >= 1);
   });
 

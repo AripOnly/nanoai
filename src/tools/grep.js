@@ -52,12 +52,12 @@ export const grepTool = {
  * Absolute paths may point anywhere because content search is read-only.
  * Returns { cwd, file } where file is set when the target is a single file.
  */
-function resolveSearchTarget(searchPath) {
+function resolveSearchTarget(searchPath, policy) {
   const root = resolveWorkspaceRoot();
   if (searchPath === undefined) {
     return { cwd: root, file: undefined, display: root };
   }
-  const resolved = resolveWorkspacePath(searchPath);
+  const resolved = resolveWorkspacePath(searchPath, policy);
   let stat;
   try {
     stat = fs.statSync(resolved);
@@ -90,7 +90,7 @@ export async function grep(params = {}, context = {}) {
 
     let target;
     try {
-      target = resolveSearchTarget(searchPath);
+      target = resolveSearchTarget(searchPath, context.policy);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

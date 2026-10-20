@@ -8,6 +8,20 @@ import { nameFromPrompt } from "#src/shared/naming.js";
 
 export { nameFromPrompt };
 
+/**
+ * Raised when a second turn tries to start on a session that already has a
+ * live turn in this process. The gateway maps it to HTTP 409; the store guard
+ * is the last line of defence against two writers racing the same history.
+ */
+export class SessionBusyError extends Error {
+  constructor(session_id) {
+    super(`Session ${session_id} already has an active turn.`);
+    this.name = "SessionBusyError";
+    this.code = "SESSION_BUSY";
+    this.session_id = session_id;
+  }
+}
+
 // Atomic turn finalize: the turn row and the session bookkeeping land
 // together or not at all.
 const commitTurn = sql.transaction((rowId, parts, session_id, token) => {
@@ -33,6 +47,11 @@ class SessionStore {
     this.turns = new Map();
   }
 
+  /** Is a turn for this session currently being produced in this process? */
+  isActive(session_id) {
+    return typeof session_id === "string" && this.turns.has(session_id);
+  }
+
   persistTurn(state) {
     sql
       .prepare("UPDATE turn SET parts = ? WHERE id = ?")
@@ -55,6 +74,11 @@ class SessionStore {
   // The turn row is INSERTed immediately (status 'streaming') so the user
   // prompt is durable from this point on — a crash can never lose it.
   start(session_id, event, input) {
+    assertSessionId(session_id);
+    if (this.turns.has(session_id)) {
+      throw new SessionBusyError(session_id);
+    }
+
     const turn = [
       {
         role: event,
@@ -129,7 +153,7 @@ class SessionStore {
   // provider never chokes on a call without a result) and an error marker
   // (shown in red, excluded from LLM input by the existing filters).
   // Returns how many turns were recovered. Never auto-resumes execution.
-  recoverInterruptedTurns(session_id) {
+  recoverInterruptedTurns(session_id, { includeActive = false } = {}) {
     assertSessionId(session_id);
     const rows = sql
       .prepare(
@@ -137,7 +161,17 @@ class SessionStore {
       )
       .all(session_id);
 
+    // A live turn in this process is not "interrupted": skip it so a stray
+    // recovery sweep can never abort the request that is still streaming.
+    // Tests (and explicit crash simulations) may pass includeActive: true.
+    const activeRowId = includeActive
+      ? undefined
+      : this.turns.get(session_id)?.rowId;
+
+    let recovered = 0;
     for (const row of rows) {
+      if (row.id === activeRowId) continue;
+
       let parts;
       try {
         parts = JSON.parse(row.parts);
@@ -188,12 +222,19 @@ class SessionStore {
       sql
         .prepare("UPDATE turn SET parts = ?, status = 'aborted' WHERE id = ?")
         .run(JSON.stringify(parts), row.id);
+
+      // Drop the stale in-memory writer for a recovered row so the next
+      // start() is not blocked by a turn that no longer exists as streaming.
+      if (this.turns.get(session_id)?.rowId === row.id) {
+        this.turns.delete(session_id);
+      }
+      recovered += 1;
     }
 
-    return rows.length;
+    return recovered;
   }
 
-  recoverAllInterruptedTurns() {
+  recoverAllInterruptedTurns({ includeActive = false } = {}) {
     const rows = sql
       .prepare(
         "SELECT DISTINCT session_id FROM turn WHERE status = 'streaming'",
@@ -202,7 +243,9 @@ class SessionStore {
 
     let recovered = 0;
     for (const row of rows) {
-      recovered += this.recoverInterruptedTurns(row.session_id);
+      recovered += this.recoverInterruptedTurns(row.session_id, {
+        includeActive,
+      });
     }
     return recovered;
   }
@@ -343,6 +386,7 @@ class SessionStore {
   deleteSession(id) {
     assertSessionId(id);
     sql.prepare("DELETE FROM session WHERE id = ?").run(id);
+    this.turns.delete(id);
   }
 }
 

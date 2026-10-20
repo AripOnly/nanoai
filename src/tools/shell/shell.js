@@ -9,7 +9,7 @@ import { acceptable, name as shellName } from "./select.js";
 import { render } from "./prompt.js";
 import { analyzeCommand } from "./parse.js";
 import { runShell } from "./run.js";
-import { fail, limits } from "#src/tools/shared/index.js";
+import { fail, limits, assertInsideWorkspace, resolveWorkspaceRoot } from "#src/tools/shared/index.js";
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -37,14 +37,19 @@ export const shellTool = buildSchema();
 
 // Throws a plain Error; shell() converts it into a fail() result so every
 // failure leaves through the same envelope.
-function resolveCwd(workdir) {
-  const home = os.homedir();
+function resolveCwd(workdir, policy = {}) {
+  const confined = policy?.allowOutsideRoot === false;
+  const base = confined ? resolveWorkspaceRoot() : os.homedir();
   if (!workdir || String(workdir).trim() === "") {
-    return home;
+    return base;
   }
-  // Absolute workdir can point anywhere (flexible); relative workdir resolves
-  // against the home directory (the shell starts in home).
-  const abs = path.isAbsolute(workdir) ? path.normalize(workdir) : path.resolve(home, workdir);
+  // Absolute workdir can point anywhere (flexible); a confined policy checks
+  // containment. Relative workdir resolves against the home directory unless
+  // the policy confines the agent to its workspace.
+  const abs = path.isAbsolute(workdir)
+    ? path.normalize(workdir)
+    : path.resolve(base, workdir);
+  assertInsideWorkspace(abs, policy);
   const st = fs.statSync(abs, { throwIfNoEntry: false });
   if (!st?.isDirectory()) {
     throw new Error(`workdir does not exist or is not a directory: ${workdir}`);
@@ -53,6 +58,13 @@ function resolveCwd(workdir) {
 }
 
 export async function shell(params, context = {}) {
+  if (
+    context.policy?.allowShell === false ||
+    context.policy?.allowWrite === false
+  ) {
+    return fail('Tool "shell" is disabled by the agent policy.');
+  }
+
   const command = params?.command;
   if (typeof command !== "string" || command.trim() === "") {
     return fail("Parameter 'command' must be a non-empty string.");
@@ -68,7 +80,7 @@ export async function shell(params, context = {}) {
 
   let cwd;
   try {
-    cwd = resolveCwd(params?.workdir);
+    cwd = resolveCwd(params?.workdir, context.policy);
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }

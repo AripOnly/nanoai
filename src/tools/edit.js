@@ -435,7 +435,6 @@ export function replace(content, oldString, newString, replaceAll = false) {
 // trimDiff() lives in ./shared/diff.js (imported above).
 
 export async function edit(params = {}, context = {}) {
-  void context;
   try {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return fail("Parameters must be an object with 'filePath', 'oldString' and 'newString'.");
@@ -459,7 +458,7 @@ export async function edit(params = {}, context = {}) {
 
     let resolved;
     try {
-      resolved = resolveWorkspacePath(filePath);
+      resolved = resolveWorkspacePath(filePath, context.policy);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

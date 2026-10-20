@@ -48,11 +48,11 @@ export const globTool = {
  * (stable home default) so results never depend on the launch directory.
  * Absolute paths may point anywhere because listing names is read-only.
  */
-function resolveSearchDir(searchPath) {
+function resolveSearchDir(searchPath, policy) {
   if (searchPath === undefined) {
     return resolveWorkspaceRoot();
   }
-  return resolveWorkspacePath(searchPath);
+  return resolveWorkspacePath(searchPath, policy);
 }
 
 export async function glob(params = {}, context = {}) {
@@ -67,7 +67,7 @@ export async function glob(params = {}, context = {}) {
 
     let search;
     try {
-      search = resolveSearchDir(searchPath);
+      search = resolveSearchDir(searchPath, context.policy);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

@@ -180,8 +180,8 @@ function buildParagraph(block, index) {
   throw new Error(`${where}.type must be one of: heading, paragraph, bullet, numbered, table.`);
 }
 
-function resolveOutputPath(filePath) {
-  const resolved = resolveWorkspacePath(filePath);
+function resolveOutputPath(filePath, policy) {
+  const resolved = resolveWorkspacePath(filePath, policy);
   if (!resolved.toLowerCase().endsWith(".docx")) {
     throw new Error("Word output path must end with .docx.");
   }
@@ -189,7 +189,6 @@ function resolveOutputPath(filePath) {
 }
 
 export async function writeWord(params = {}, context = {}) {
-  void context;
   try {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return fail("Parameters must be an object with 'filePath', optional 'title' and 'blocks'.");
@@ -215,7 +214,7 @@ export async function writeWord(params = {}, context = {}) {
 
     let resolved;
     try {
-      resolved = resolveOutputPath(filePath);
+      resolved = resolveOutputPath(filePath, context.policy);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

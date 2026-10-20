@@ -29,7 +29,7 @@ export async function checkCompaction({ provider = null, model, token = null }) 
   return (token ?? 0) > modelLimit * (ratio / 100);
 }
 
-export async function* compaction({ conversation, session_id, provider, model }) {
+export async function* compaction({ conversation, session_id, provider, model, signal }) {
   const { keep_turn } = await settings.get("compaction");
 
   // There is nothing to compact if there are not enough turns.
@@ -97,6 +97,7 @@ export async function* compaction({ conversation, session_id, provider, model })
     ],
 
     tools: compaction.tools,
+    signal,
     // The summarizer works from text references only; never re-send bytes.
     sentAttachments: collectAttachmentIds(messages),
   };

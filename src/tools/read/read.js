@@ -102,7 +102,7 @@ async function readMediaFile(resolved, mime) {
   };
 }
 
-export async function read(params = {}) {
+export async function read(params = {}, context = {}) {
   try {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return fail("Parameters must be an object with 'path' and optional 'offset'/'limit'.");
@@ -118,7 +118,7 @@ export async function read(params = {}) {
       return fail("Parameter 'limit' must be a positive integer.");
     }
 
-    const resolved = resolveWorkspacePath(requested);
+    const resolved = resolveWorkspacePath(requested, context.policy);
     let stat;
     try {
       stat = fs.statSync(resolved);

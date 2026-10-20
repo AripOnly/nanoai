@@ -4,8 +4,11 @@ import { app } from "./application/web.js";
 import { getGatewayToken } from "./auth/token.js";
 import { closeDatabase } from "../src/session/index.js";
 import sessionService from "./service/session-service.js";
+import { bootGateway, resolveHost } from "./boot.js";
+import { abortActiveTurns } from "./lifecycle/active-turns.js";
 
 const PORT = Number(process.env.PORT ?? 3060);
+const HOST = resolveHost();
 
 const { token, created } = await getGatewayToken();
 
@@ -19,11 +22,25 @@ if (created) {
   );
 }
 
-const server = app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+let booted;
+try {
+  // Recovery runs inside bootGateway, before the port starts accepting
+  // requests. A fresh request must never race the interrupted-turn sweep.
+  booted = bootGateway({
+    app,
+    sessionService,
+    port: PORT,
+    host: HOST,
+    onListen: () => {
+      console.log(`Server is running on http://${HOST}:${PORT}`);
+    },
+  });
+} catch (error) {
+  console.error("[nanoai] Boot failed:", error);
+  process.exit(1);
+}
 
-const recovered = sessionService.init();
+const { server, recovered } = booted;
 if (recovered > 0) {
   console.log(
     `[nanoai] Recovered ${recovered} interrupted turn(s) from the previous run.`,
@@ -35,12 +52,13 @@ if (recovered > 0) {
 server.on("error", (error) => {
   if (error?.code === "EADDRINUSE") {
     console.error(
-      `[nanoai] Port ${PORT} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
+      `[nanoai] Port ${PORT} on ${HOST} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
     );
     process.exit(1);
     return;
   }
-  throw error;
+  console.error("[nanoai] Server error:", error);
+  process.exit(1);
 });
 
 // SSE agent streams can run for a long time; do not let Node's default
@@ -50,6 +68,10 @@ server.requestTimeout = 0;
 
 function shutdown(signal) {
   console.log(`[nanoai] Received ${signal}, shutting down...`);
+
+  // Stop provider/tool work first. The controllers' generators then commit
+  // their partial turns before server.close() finishes waiting for sockets.
+  abortActiveTurns(new Error(`Gateway shutdown (${signal})`));
 
   const forceExit = setTimeout(() => {
     console.log("[nanoai] Shutdown timed out, forcing exit.");

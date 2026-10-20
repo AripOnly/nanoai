@@ -18,6 +18,10 @@ const DEFAULT_WORKSPACE_DIR = "nano-workspace";
  * can still point anywhere, so the agent stays flexible. Throws a plain Error
  * so tool wrappers convert it into a `{ success: false, error }` result with a
  * clear message.
+ *
+ * `policy.allowOutsideRoot === false` confines the resolved path to the
+ * workspace (including symlink targets). Read-only agents still default to
+ * `true`; the switch exists for confined agents and future channels.
  */
 export function resolveWorkspaceRoot() {
   const configured = process.env.NANO_WORKSPACE;
@@ -66,7 +70,52 @@ export function suggestSimilarPaths(targetPath, max = 3) {
   }
 }
 
-export function resolveWorkspacePath(filePath) {
+// Resolve through symlinks where possible. For a path that does not exist yet
+// (a new file), resolve the nearest existing ancestor and append the rest, so
+// a symlinked parent directory cannot be used to escape the workspace.
+function realPathForContainment(targetPath) {
+  let current = path.resolve(targetPath);
+  const rest = [];
+  while (true) {
+    try {
+      const real = fs.realpathSync.native(current);
+      return rest.length === 0 ? real : path.join(real, ...rest.reverse());
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(targetPath);
+      rest.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Enforce `policy.allowOutsideRoot === false`. Returns the original path when
+ * allowed, otherwise throws a tool-safe Error. Lexical containment alone is
+ * not enough: existing symlinks/junctions and symlinked parents are resolved
+ * before comparing against the workspace root.
+ */
+export function assertInsideWorkspace(targetPath, policy = {}) {
+  if (policy?.allowOutsideRoot !== false) return targetPath;
+
+  const root = resolveWorkspaceRoot();
+  const rootReal = realPathForContainment(root);
+  const targetReal = realPathForContainment(targetPath);
+  const relative = path.relative(rootReal, targetReal);
+  const outside =
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative);
+
+  if (outside) {
+    throw new Error(
+      `Access denied: path is outside the workspace root (${targetPath}).`,
+    );
+  }
+  return targetPath;
+}
+
+export function resolveWorkspacePath(filePath, policy = {}) {
   if (typeof filePath !== "string" || filePath.trim() === "") {
     throw new Error("Parameter 'path' must be a non-empty string.");
   }
@@ -74,6 +123,10 @@ export function resolveWorkspacePath(filePath) {
   const root = resolveWorkspaceRoot();
   // Bebas: relative paths anchor at the default save folder (never the launch
   // directory) so every tool resolves the same relative path identically.
-  // Absolute paths may point anywhere (e.g. Desktop) when the user names a location.
-  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, path.normalize(filePath));
+  // Absolute paths may point anywhere when the user names a location; a
+  // restrictive policy turns that into a clear denial instead.
+  const resolved = path.isAbsolute(filePath)
+    ? path.normalize(filePath)
+    : path.resolve(root, path.normalize(filePath));
+  return assertInsideWorkspace(resolved, policy);
 }

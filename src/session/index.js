@@ -8,10 +8,19 @@ import sql from "./sql.js";
 import { sessionStore, nameFromPrompt } from "./session-store.js";
 
 export { STORAGE_DIR, closeDatabase } from "./sql.js";
+export { SessionBusyError } from "./session-store.js";
 
 /** Cheap database readiness probe: one trivial query. Throws when the DB is gone. */
 export function ping() {
   sql.prepare("SELECT 1").get();
+}
+
+/** Is a turn currently streaming in this process for the session? */
+export function isSessionBusy(session_id) {
+  if (typeof session_id !== "string" || session_id.trim() === "") {
+    return false;
+  }
+  return sessionStore.isActive(session_id);
 }
 
 /** Create a session and name it from its first prompt. */
