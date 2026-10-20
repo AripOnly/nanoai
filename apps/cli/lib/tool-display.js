@@ -3,7 +3,8 @@
 // One-line display value for a tool call, rendered after "name: " in the CLI
 // (e.g. "read: package.json"). Plain JS on purpose: unit-tested with node:test
 // (JSX components cannot run under plain node).
-import { getCallId } from "../../../src/shared/call-id.js";
+import { getCallId } from "#src/shared/call-id.js";
+import { EVENT } from "#src/shared/event-type.js";
 
 // First present key wins: every tool's most informative argument comes first.
 // Note: `pattern` outranks `path` so grep/glob show the pattern; their
@@ -82,14 +83,14 @@ export function attachToolResults(chat) {
   const callIndexById = new Map();
   chat.forEach((item, index) => {
     const id = getCallId(item?.content);
-    if (item?.role === "tool_call" && id !== undefined && !callIndexById.has(id)) {
+    if (item?.role === EVENT.TOOL_CALL && id !== undefined && !callIndexById.has(id)) {
       callIndexById.set(id, index);
     }
   });
   const consumedResult = new Set();
   const resultByCall = new Map();
   chat.forEach((item, index) => {
-    if (item?.role !== "tool_result") return;
+    if (item?.role !== EVENT.TOOL_RESULT) return;
     const id = getCallId(item?.content);
     if (id === undefined) return;
     const target = callIndexById.get(id);
@@ -103,11 +104,11 @@ export function attachToolResults(chat) {
   if (resultByCall.size === 0) return chat;
   const out = [];
   chat.forEach((item, index) => {
-    if (item?.role === "tool_result") {
+    if (item?.role === EVENT.TOOL_RESULT) {
       if (!consumedResult.has(index)) out.push(item);
       return;
     }
-    if (item?.role === "tool_call" && resultByCall.has(index)) {
+    if (item?.role === EVENT.TOOL_CALL && resultByCall.has(index)) {
       out.push({ ...item, content: { ...(item.content ?? {}), result: resultByCall.get(index) } });
       return;
     }

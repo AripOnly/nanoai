@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, isConnectionError } from "../lib/api.js";
 import { clearTerminal } from "../lib/terminal.js";
-import { getCallId } from "../../../src/shared/call-id.js";
-import { nameFromPrompt } from "../../../src/shared/naming.js";
+import { getCallId } from "#src/shared/call-id.js";
+import { EVENT } from "#src/shared/event-type.js";
 
 export function useChat() {
   const [chat, setChat] = useState([]);
@@ -60,12 +60,10 @@ export function useChat() {
 
       try {
         if (!session) {
+          // The backend names a session: from the prompt here, or on the
+          // first turn of an empty session (session-store auto-name). The
+          // client never renames behind the backend's back.
           session = await api.createSession(prompt);
-          sessionRef.current = session;
-          setActiveSession(session);
-        } else if ((await api.getConversation(session.id)).length === 0) {
-          const name = nameFromPrompt(prompt);
-          session = await api.renameSession(session.id, name);
           sessionRef.current = session;
           setActiveSession(session);
         }
@@ -76,7 +74,7 @@ export function useChat() {
 
       setChat((prev) => [
         ...prev,
-        { role: "user", content: { text: prompt } },
+        { role: EVENT.USER, content: { text: prompt } },
       ]);
 
       try {
@@ -85,14 +83,14 @@ export function useChat() {
           prompt,
           session_id: session.id,
         })) {
-          if (event.role === "assistant") {
+          if (event.role === EVENT.ASSISTANT) {
             const text = event.content?.text ?? "";
 
             setChat((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
 
-              if (last?.role === "assistant") {
+              if (last?.role === EVENT.ASSISTANT) {
                 const prevContent =
                   typeof last.content === "string"
                     ? last.content
@@ -109,18 +107,18 @@ export function useChat() {
             });
           }
 
-          if (event.role === "tool_call" || event.role === "error") {
+          if (event.role === EVENT.TOOL_CALL || event.role === EVENT.ERROR) {
             setChat((prev) => [...prev, event]);
           }
 
-          if (event.role === "tool_update") {
+          if (event.role === EVENT.TOOL_UPDATE) {
             const callId = getCallId(event.content);
             const preview = event.content?.preview ?? "";
             if (callId !== undefined) {
               setChat((prev) => {
                 for (let i = prev.length - 1; i >= 0; i--) {
                   const item = prev[i];
-                  if (item?.role === "tool_call" && getCallId(item?.content) === callId) {
+                  if (item?.role === EVENT.TOOL_CALL && getCallId(item?.content) === callId) {
                     // Update telat setelah result / preview sama: kembalikan prev
                     // agar tidak ada render ulang sia-sia.
                     if (item?.content?.result !== undefined) return prev;
@@ -138,13 +136,13 @@ export function useChat() {
             }
           }
 
-          if (event.role === "tool_result") {
+          if (event.role === EVENT.TOOL_RESULT) {
             const callId = getCallId(event.content);
             setChat((prev) => {
               const next = [...prev];
               for (let i = next.length - 1; i >= 0; i--) {
                 const item = next[i];
-                if (item?.role === "tool_call" && getCallId(item?.content) === callId) {
+                if (item?.role === EVENT.TOOL_CALL && getCallId(item?.content) === callId) {
                   next[i] = {
                     ...item,
                     content: { ...item.content, result: event.content?.result },
@@ -156,13 +154,13 @@ export function useChat() {
             });
           }
 
-          if (event.role === "compaction") {
+          if (event.role === EVENT.COMPACTION) {
             setChat((prev) => {
               const text = event.content?.text ?? "";
               const next = [...prev];
               const last = next[next.length - 1];
 
-              if (last?.role === "compaction") {
+              if (last?.role === EVENT.COMPACTION) {
                 const prevContent =
                   typeof last.content === "string"
                     ? last.content
@@ -172,14 +170,14 @@ export function useChat() {
                   content: prevContent + text,
                 };
               } else {
-                next.push({ role: "compaction", content: text });
+                next.push({ role: EVENT.COMPACTION, content: text });
               }
 
               return next;
             });
           }
 
-          setThinking(event.role === "reasoning_summary");
+          setThinking(event.role === EVENT.REASONING_SUMMARY);
         }
 
         const result = await api.getConversation(session.id);
@@ -192,6 +190,20 @@ export function useChat() {
       } finally {
         setThinking(false);
         refreshSessions();
+        // The backend auto-names a session from its first prompt; refresh the
+        // header so the new name shows up without a manual reload.
+        const current = sessionRef.current;
+        if (current?.id) {
+          try {
+            const info = await api.getSessionInfo(current.id);
+            if (info) {
+              sessionRef.current = info;
+              setActiveSession(info);
+            }
+          } catch {
+            // Session deleted meanwhile; the refreshed list already knows.
+          }
+        }
       }
     },
     [appendError, refreshSessions],
@@ -220,7 +232,7 @@ export function useChat() {
       if (!prompt || typeof prompt !== "string" || !prompt.trim()) return;
 
       // Drop stale errors: a new attempt starts with a clean slate.
-      setChat((prev) => prev.filter((event) => event.role !== "error"));
+      setChat((prev) => prev.filter((event) => event.role !== EVENT.ERROR));
 
       queueRef.current.push(prompt.trim());
       setQueuedCount(queueRef.current.length);
@@ -317,8 +329,8 @@ export function useChat() {
   // without restarting the CLI.
   const resync = useCallback(async () => {
     setChat((prev) =>
-      prev.some((event) => event.role === "error")
-        ? prev.filter((event) => event.role !== "error")
+      prev.some((event) => event.role === EVENT.ERROR)
+        ? prev.filter((event) => event.role !== EVENT.ERROR)
         : prev,
     );
     await refreshSessions();

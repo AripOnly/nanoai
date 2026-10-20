@@ -36,7 +36,7 @@ describe("webFetch validation", () => {
     assert.match(ftp.error, /http/);
     assert.equal((await webFetch({ url: "https://example.com", format: "pdf" })).success, false);
     assert.equal((await webFetch({ url: "https://example.com", timeout: 0 })).success, false);
-    assert.equal((await webFetch({ url: "https://example.com", timeout: 999 })).success, false);
+    assert.equal((await webFetch({ url: "https://example.com", timeout: 999_999 })).success, false);
     assert.equal((await webFetch("https://example.com")).success, false);
   });
 });

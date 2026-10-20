@@ -2,17 +2,16 @@
 
 import { EVENT } from "#src/shared/event-type.js";
 import { getCallId } from "#src/shared/call-id.js";
-import { llm } from "#src/llm/llm.js";
+import { getProvider } from "#src/llm/registry.js";
 import { toolExecute } from "./tool-execute.js";
 import { compaction, checkCompaction } from "./compaction.js";
 import { sessionStore } from "#src/session/session-store.js";
 import { settings } from "#src/config/config.js";
 
 export async function* agentLoop(request) {
-  const provider = llm[request.provider];
-  if (!provider) {
-    throw new Error(`Unknown provider: ${request.provider}`);
-  }
+  // getProvider throws a clear "Unknown provider: X. Available providers: …"
+  // for a bad setting; agent.js turns that into an EVENT.ERROR for the user.
+  const provider = getProvider(request.provider);
   while (true) {
     let toolCall = [];
     let reasoningSignature = "";

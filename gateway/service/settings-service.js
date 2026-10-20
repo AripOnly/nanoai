@@ -2,7 +2,12 @@
 
 import { ResponseError } from "../error/response-error.js";
 import { settings } from "../../src/config/config.js";
-import { llm } from "../../src/llm/llm.js";
+import {
+  getProvider,
+  isKnownModel,
+  isKnownProvider,
+  listProviders as providerIds,
+} from "../../src/llm/registry.js";
 import { setOrigins } from "../auth/origins.js";
 
 const SECRET_KEYS = ["api_key", "serper_api_key"];
@@ -63,15 +68,14 @@ function validateModel(value) {
     );
   }
 
-  if (!(provider in llm)) {
+  if (!isKnownProvider(provider)) {
     throw new ResponseError(
       400,
-      `unknown provider "${provider}". Available: ${Object.keys(llm).join(", ")}`,
+      `unknown provider "${provider}". Available: ${providerIds().join(", ")}`,
     );
   }
 
-  const known = llm[provider].models.some((entry) => entry.id === model);
-  if (!known) {
+  if (!isKnownModel(provider, model)) {
     throw new ResponseError(
       400,
       `unknown model "${model}" for provider "${provider}".`,
@@ -294,16 +298,17 @@ async function updateSettings(body) {
 }
 
 function listProviders() {
-  return Object.entries(llm).map(([provider, entry]) => ({
-    provider,
-    models: Array.isArray(entry.models)
-      ? entry.models.map((model) => ({
-          id: model.id,
-          name: model.name ?? model.id,
-          context: model.context ?? null,
-        }))
-      : [],
-  }));
+  return providerIds().map((provider) => {
+    const { models } = getProvider(provider);
+    return {
+      provider,
+      models: models.map((model) => ({
+        id: model.id,
+        name: model.name ?? model.id,
+        context: model.context ?? null,
+      })),
+    };
+  });
 }
 
 export default { getSettings, updateSettings, listProviders };

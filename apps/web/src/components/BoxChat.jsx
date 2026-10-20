@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 import MarkdownRenderer from "./MarkdownRenderer.jsx";
+import { EVENT } from "#src/shared/event-type.js";
 
 export default function BoxChat({
   context,
@@ -14,7 +15,7 @@ export default function BoxChat({
   /** @type {import("react").RefObject<HTMLDivElement | null>} */
   const lastUserBubbleRef = useRef(null);
 
-  const lastUserIndex = context.findLastIndex((value) => value.role === "user");
+  const lastUserIndex = context.findLastIndex((value) => value.role === EVENT.USER);
 
   /** @type {import("react").RefObject<HTMLDivElement | null>} */
   const spacerRef = useRef(null);
@@ -47,7 +48,7 @@ export default function BoxChat({
     >
       <div className="w-full max-w-3xl flex flex-col">
         {context.map((value, index) => {
-          if (value.role === "user") {
+          if (value.role === EVENT.USER) {
             return (
               <div
                 key={index}
@@ -59,7 +60,7 @@ export default function BoxChat({
             );
           }
 
-          if (value.role === "assistant") {
+          if (value.role === EVENT.ASSISTANT) {
             return (
               <div
                 id={"assistant"}
@@ -74,15 +75,16 @@ export default function BoxChat({
             );
           }
 
-          if (value.role === "tool_call") {
+          if (value.role === EVENT.TOOL_CALL) {
             return (
               <div key={index} className="w-full p-2 mt-4 text-gray-500 italic">
                 🔧 {value.content.name}
+                {value.content?.preview ? `: ${value.content.preview}` : ""}
               </div>
             );
           }
 
-          if (value.role === "error") {
+          if (value.role === EVENT.ERROR) {
             return (
               <div
                 key={index}

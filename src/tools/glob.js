@@ -7,8 +7,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { rgGlob } from "#src/tools/shared/rg.js";
-import { resolveWorkspaceRoot, suggestSimilarPaths } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath, rgGlob, resolveWorkspaceRoot, suggestSimilarPaths } from "#src/tools/shared/index.js";
 
 const RESULT_LIMIT = 100;
 
@@ -42,9 +41,7 @@ export const globTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 /**
  * Resolve the search directory. Relative paths anchor at the workspace root
@@ -55,11 +52,7 @@ function resolveSearchDir(searchPath) {
   if (searchPath === undefined) {
     return resolveWorkspaceRoot();
   }
-  if (typeof searchPath !== "string" || searchPath.trim() === "") {
-    throw new Error("Parameter 'path' must be a non-empty string when provided.");
-  }
-  const root = resolveWorkspaceRoot();
-  return path.isAbsolute(searchPath) ? path.normalize(searchPath) : path.resolve(root, searchPath);
+  return resolveWorkspacePath(searchPath);
 }
 
 export async function glob(params = {}, context = {}) {

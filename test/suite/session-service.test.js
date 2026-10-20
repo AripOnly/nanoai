@@ -46,7 +46,31 @@ describe("session-service", () => {
     const row = sessionService.createSession("delete me please");
     const result = sessionService.deleteSession(row.id);
     assert.deepEqual(result, { deleted: true });
-    assert.equal(sessionService.getSessionInfo(row.id), undefined);
+    // The session is gone: reading it now answers 404, not an empty body.
+    assert.throws(
+      () => sessionService.getSessionInfo(row.id),
+      (error) =>
+        error instanceof ResponseError &&
+        error.status === 404 &&
+        /not found/.test(error.message),
+    );
+  });
+
+  it("reports missing sessions as 404", () => {
+    const missing = "00000000-0000-4000-8000-000000000000";
+    for (const call of [
+      () => sessionService.getSessionInfo(missing),
+      () => sessionService.getConversation(missing),
+      () => sessionService.renameSession(missing, "baru"),
+    ]) {
+      assert.throws(
+        call,
+        (error) =>
+          error instanceof ResponseError &&
+          error.status === 404 &&
+          /not found/.test(error.message),
+      );
+    }
   });
 
   it("session info exposes the token counter for CLIs", () => {

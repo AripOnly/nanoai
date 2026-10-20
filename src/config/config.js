@@ -8,19 +8,32 @@ function settingsPath() {
   return path.join(dataDir(), CONFIG_FILENAME);
 }
 
+// Windows editors may save a UTF-8 BOM (PowerShell 'Set-Content -Encoding
+// utf8', some Notepad builds); JSON.parse would reject it — strip it first.
+function parseSettings(text) {
+  return JSON.parse(text.replace(/^\uFEFF/, ""));
+}
+
 /** Absolute path of the user config file (useful for tests and tooling). */
 export function configPath() {
   return settingsPath();
 }
 
+// The settings file is plain JSON the user may edit while the gateway runs.
+// Cache it briefly instead of forever: at most one file read per window, and
+// external edits (rotated token, new CORS origins, new model) become visible
+// without restarting the gateway.
+const CACHE_TTL_MS = 5_000;
+
 let cachedSettings = null;
+let cachedAt = 0;
 let cachePromise = null;
 
 async function load() {
   const SETTINGS_PATH = settingsPath();
   try {
     const text = await fs.readFile(SETTINGS_PATH, "utf-8");
-    return JSON.parse(text);
+    return parseSettings(text);
   } catch (error) {
     if (error.code === "ENOENT") {
       // First run (or fresh data dir): adopt data written by older layouts,
@@ -28,15 +41,16 @@ async function load() {
       migrateLegacyData();
       try {
         const text = await fs.readFile(SETTINGS_PATH, "utf-8");
-        return JSON.parse(text);
+        return parseSettings(text);
       } catch (retry) {
         if (retry.code !== "ENOENT") throw retry;
       }
       const data = JSON.stringify(
         {
           username: "your name",
-          model: "google/gemini-3.1-flas-lite",
+          model: "google/gemini-3.1-flash-lite",
           api_key: null,
+          provider_keys: {},
           serper_api_key: null,
           compaction: {
             ratio: 85,
@@ -58,15 +72,28 @@ async function load() {
 }
 
 async function getSettings() {
-  if (cachedSettings) {
+  if (cachedSettings && Date.now() - cachedAt < CACHE_TTL_MS) {
     return cachedSettings;
   }
 
   if (!cachePromise) {
-    cachePromise = load().then((settings) => {
-      cachedSettings = settings;
-      return settings;
-    });
+    cachePromise = load()
+      .then((settings) => {
+        cachedSettings = settings;
+        cachedAt = Date.now();
+        return settings;
+      })
+      .catch((error) => {
+        // A half-written file (editor mid-save) must not take the gateway
+        // down: keep serving the last good copy when we have one.
+        if (cachedSettings) {
+          return cachedSettings;
+        }
+        throw error;
+      })
+      .finally(() => {
+        cachePromise = null;
+      });
   }
 
   return cachePromise;
@@ -112,6 +139,7 @@ async function set(key, value) {
   await fs.writeFile(settingsPath(), JSON.stringify(data, null, 2), "utf-8");
 
   cachedSettings = data;
+  cachedAt = Date.now();
   return true;
 }
 

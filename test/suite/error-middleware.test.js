@@ -32,13 +32,37 @@ describe("error-middleware", () => {
     });
   });
 
-  it("maps unexpected errors to 500 with the error envelope", async () => {
+  it("maps unexpected errors to 500 with a sanitized message", async () => {
     const res = fakeRes();
-    await errorMiddleware(new Error("kaboom"), {}, res, () => {});
+    const original = console.error;
+    console.error = () => {};
+    try {
+      await errorMiddleware(new Error("kaboom"), {}, res, () => {});
+    } finally {
+      console.error = original;
+    }
     assert.equal(res.statusCode, 500);
     assert.deepEqual(res.body, {
       role: "error",
-      content: { message: "kaboom" },
+      content: { message: "Internal server error" },
+    });
+  });
+
+  it("sanitizes upstream 5xx statuses too", async () => {
+    const res = fakeRes();
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const upstream = new Error("stack details here");
+      upstream.status = 503;
+      await errorMiddleware(upstream, {}, res, () => {});
+    } finally {
+      console.error = original;
+    }
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(res.body, {
+      role: "error",
+      content: { message: "Internal server error" },
     });
   });
 

@@ -159,6 +159,38 @@ describe("session-store", () => {
     assert.ok(recovered >= 1);
   });
 
+  it("auto-names only still-default sessions, and never twice", () => {
+    const defaultRow = sessionStore.createSession();
+    IDS.push(defaultRow.id);
+    assert.equal(
+      sessionStore.autoNameSession(defaultRow.id, "Riset pasar Q3"),
+      true,
+    );
+    assert.equal(
+      sessionStore.getSessionInfo(defaultRow.id).name,
+      "Riset pasar Q3",
+    );
+    assert.equal(
+      sessionStore.autoNameSession(defaultRow.id, "prompt kedua"),
+      false,
+      "a named session is never renamed again",
+    );
+
+    const namedRow = sessionStore.createSession("Judul Pilihan", "p");
+    IDS.push(namedRow.id);
+    assert.equal(sessionStore.autoNameSession(namedRow.id, "lain"), false);
+    assert.equal(
+      sessionStore.getSessionInfo(namedRow.id).name,
+      "Judul Pilihan",
+    );
+
+    assert.equal(
+      sessionStore.autoNameSession(defaultRow.id, "   "),
+      false,
+      "an empty prompt is a no-op",
+    );
+  });
+
   it("skips corrupt turn rows instead of crashing history", async () => {
     const id = await makeSession();
     sessionStore.start(id, "user", "hello");

@@ -15,8 +15,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createTwoFilesPatch, diffLines } from "diff";
-import { trimDiff } from "#src/tools/edit.js";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath, trimDiff } from "#src/tools/shared/index.js";
 
 export const writeTool = {
   type: "function",
@@ -53,16 +52,7 @@ export const writeTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
-
-function resolveWritePath(filePath) {
-  const root = resolveWorkspaceRoot();
-  // Bebas: relatif jangkar ke default-save (nano-workspace), absolut boleh ke mana saja
-  // (mis. Desktop) saat user menyebut lokasi eksplisit.
-  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 export async function write(params = {}, context = {}) {
   void context;
@@ -83,7 +73,7 @@ export async function write(params = {}, context = {}) {
 
     let resolved;
     try {
-      resolved = resolveWritePath(filePath);
+      resolved = resolveWorkspacePath(filePath);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

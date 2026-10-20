@@ -7,7 +7,7 @@ import { EVENT } from "#src/shared/event-type.js";
 import { agents } from "./registry.js";
 import { createInstruction } from "#src/prompts/createInstruction.js";
 import { compaction, checkCompaction } from "./compaction.js";
-import { collectAttachmentIds } from "#src/llm/providers/google/google.js";
+import { collectAttachmentIds } from "#src/llm/attachment-expansion.js";
 
 export async function* agent({ name, prompt, session_id }) {
   let token = 0;
@@ -23,6 +23,11 @@ export async function* agent({ name, prompt, session_id }) {
     // aborted with its partial state first, so this run continues from
     // exactly where the last one stopped.
     sessionStore.recoverInterruptedTurns(session_id);
+
+    // Still carrying the auto-generated name ("session-xxxxxxxx")? The first
+    // real prompt gives it a permanent one — backend-side, so every client
+    // (CLI, web, API) sees the same name without client-side renaming.
+    sessionStore.autoNameSession(session_id, prompt);
 
     if (!agents[name]) {
       throw new Error(
@@ -104,11 +109,30 @@ export async function* agent({ name, prompt, session_id }) {
       yield event;
     }
   } catch (error) {
-    yield {
-      role: EVENT.ERROR,
-      content: { message: error.stack },
-    };
+    // Fatal failures (bad provider, DB hiccup, …) must reach the user through
+    // the same EVENT.ERROR envelope and survive a reload, so record before
+    // yielding. record() is a no-op when the turn never started.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[agent] turn failed:", error);
+    const event = { role: EVENT.ERROR, content: { message } };
+    try {
+      sessionStore.record(session_id, event);
+    } catch {
+      // Persisting the error failed too; the live stream still shows it.
+    }
+    yield event;
   } finally {
-    sessionStore.commit(session_id, token);
+    try {
+      sessionStore.commit(session_id, token);
+    } catch (error) {
+      // The stream is nearly over, but the user still deserves to know the
+      // turn was not saved (e.g. the session was deleted mid-turn).
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[agent] commit failed:", error);
+      yield {
+        role: EVENT.ERROR,
+        content: { message: `Failed to save this turn: ${message}` },
+      };
+    }
   }
 }

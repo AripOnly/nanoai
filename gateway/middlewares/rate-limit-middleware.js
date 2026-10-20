@@ -19,6 +19,18 @@ export function rateLimit({ windowMs, max, scope = "global" }) {
   const windowSeconds = Math.round(windowMs / 1000);
   const hits = new Map();
 
+  // Purge expired windows on a timer so the Map cannot grow stale; unref()
+  // keeps the process free to exit when only this timer remains.
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [storedKey, stored] of hits) {
+      if (stored.resetAt <= now) {
+        hits.delete(storedKey);
+      }
+    }
+  }, windowMs);
+  sweeper.unref?.();
+
   return (req, res, next) => {
     try {
       const now = Date.now();
@@ -31,14 +43,6 @@ export function rateLimit({ windowMs, max, scope = "global" }) {
       }
 
       entry.count += 1;
-
-      if (hits.size > 10000) {
-        for (const [storedKey, stored] of hits) {
-          if (stored.resetAt <= now) {
-            hits.delete(storedKey);
-          }
-        }
-      }
 
       const retryAfter = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
       res.setHeader("X-RateLimit-Limit", String(max));

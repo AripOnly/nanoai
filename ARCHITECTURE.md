@@ -19,8 +19,13 @@ apps/*, gateway  →  services  →  agents  →  tools  →  shared
   lives in `src/tools/shared/` behind its barrel (`src/tools/shared/index.js`).
 - Cross-folder imports use the `#src/` alias (`package.json` → `imports`).
   Same-folder imports stay relative. The single documented exception is
-  `src/llm/llm.js` reading the root-level model catalog
+  `src/llm/registry.js` reading the root-level model catalog
   (`../../config/models.json`).
+- Outer layers (gateway, apps) import a module through its **door** only:
+  `src/agents/index.js` (run an agent, inspect the roster),
+  `src/session/index.js` (a facade of named use-cases + `ping()`), and the
+  LLM registry window (`src/llm/registry.js`). Provider folders, agent
+  internals, and `session-store.js`/`sql.js` stay private to their module.
 - `test/suite/architecture.test.js` enforces all of the above. If it fails,
   the design regressed — fix the code, not the test.
 
@@ -35,10 +40,19 @@ apps/*, gateway  →  services  →  agents  →  tools  →  shared
   `scripts/backup.mjs` (online, retention 7) and `scripts/restore.mjs`
   (validates, refuses while the gateway runs, safeguards pre-restore) own
   disaster recovery; `scripts/doctor.mjs` owns preflight health.
+- Settings and derived caches are eventually consistent by design: the
+  settings file is re-read on a short TTL (5s) and CORS origins refresh the
+  same way, so editing `nano.config.json` — rotating `gateway_token`, adding
+  an origin — takes effect without a restart (an update via the settings API
+  applies instantly).
+- `audit.log` (data dir, JSONL with rotation) is a documented exception to
+  "SQLite or nothing": it is an append-only operational trail, not source of
+  truth, and the single-user single-process gateway is its only writer.
+  Entries are fsync'd so the trail survives a hard crash.
 - Attachments (images, PDFs) are stored by reference (`attachments/`
   inside the data dir)
-  and sent to the LLM exactly once per id (see `google.js` expansion +
-  `sentAttachments` seeding).
+  and sent to the LLM exactly once per id (see `attachment-expansion.js`
+  + `sentAttachments` seeding).
 
 ## Tool contract
 

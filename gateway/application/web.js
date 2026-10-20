@@ -10,9 +10,9 @@ import { authMiddleware } from "../middlewares/auth-middleware.js";
 import { auditMiddleware } from "../middlewares/audit-middleware.js";
 import { rateLimit } from "../middlewares/rate-limit-middleware.js";
 import { ResponseError } from "../error/response-error.js";
-import { settings } from "../../src/config/config.js";
+import { EVENT } from "../../src/shared/event-type.js";
 import { buildHealth } from "../service/health-service.js";
-import { setOrigins, getOrigins } from "../auth/origins.js";
+import { getOrigins, initOrigins } from "../auth/origins.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,26 +21,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const app = express();
 
-async function resolveOrigins() {
-  const fromEnv = (process.env.NANO_CORS_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  let fromSettings = [];
-  try {
-    const stored = await settings.get("cors_origins");
-    if (Array.isArray(stored)) {
-      fromSettings = stored;
-    }
-  } catch {
-    fromSettings = [];
-  }
-
-  return [...new Set([...fromEnv, ...fromSettings])];
-}
-
-setOrigins(await resolveOrigins());
+// First CORS snapshot must be ready before requests arrive; later changes are
+// picked up by the origins module's TTL refresh or by setOrigins() from the
+// settings API.
+await initOrigins();
 
 app.use(
   cors({
@@ -89,7 +73,20 @@ app.use("/api/v1/agent", agentRouter);
   const indexHtml = path.join(distDir, "index.html");
   if (fs.statSync(indexHtml, { throwIfNoEntry: false })?.isFile()) {
     app.use(express.static(distDir));
-    app.get(["/", "/index.html"], (req, res) => res.sendFile(indexHtml));
+    // SPA fallback: client-side routes (/c/<session>, …) must survive a hard
+    // refresh. Real files were already served above; every GET that is not an
+    // API route resolves to index.html.
+    app.use((req, res, next) => {
+      if (req.method !== "GET" || req.path.startsWith("/api")) {
+        return next();
+      }
+      // Looks like a missing asset (has a file extension)? Let it 404 as
+      // JSON instead of returning the app shell with a 200.
+      if (path.extname(req.path)) {
+        return next();
+      }
+      res.sendFile(indexHtml);
+    });
     console.log(`[nanoai] Serving web dashboard from ${distDir}`);
   } else {
     console.log("[nanoai] Web dashboard not built yet — run: npm run build:web");
@@ -99,7 +96,7 @@ app.use("/api/v1/agent", agentRouter);
 // Unknown routes get the same error envelope, not Express's HTML page.
 app.use((req, res) => {
   res.status(404).json({
-    role: "error",
+    role: EVENT.ERROR,
     content: { message: `Route not found: ${req.method} ${req.path}` },
   });
 });

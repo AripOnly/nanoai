@@ -18,18 +18,13 @@ async function create(prompt) {
 }
 
 async function list() {
-  try {
-    const response = await apiFetch(`/session/list-session`);
+  const response = await apiFetch(`/session/list-session`);
 
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.warn(`Error API: ${error.message}`);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`);
   }
+
+  return await response.json();
 }
 
 async function getConversation(sessionId) {

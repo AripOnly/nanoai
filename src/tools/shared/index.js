@@ -4,6 +4,8 @@
 // through this barrel (or the #tools alias), never via deep sibling paths
 // like ../read/media.js — that hid coupling and broke unrelated tools.
 
+export { fail } from "./fail.js";
+export { trimDiff } from "./diff.js";
 export {
   ATTACH_DIR,
   IMAGE_MIMES,

@@ -1,37 +1,28 @@
 // gateway/controllers/agent-controller.js
+//
+// Thin HTTP door: parse, delegate, stream. Business validation belongs to
+// agent-service; this file only knows about HTTP and the SSE envelope.
 
 import { agentService } from "../service/agent-service.js";
 import { ResponseError } from "../error/response-error.js";
-import { agents } from "../../src/agents/registry.js";
+import { EVENT } from "../../src/shared/event-type.js";
 
 async function agentController(req, res, next) {
   try {
-    const { name, prompt } = req.body ?? {};
-
-    if (typeof prompt !== "string" || prompt.trim() === "") {
-      throw new ResponseError(400, "prompt must be a non-empty string.");
-    }
-
-    if (typeof name !== "string" || !(name in agents)) {
-      throw new ResponseError(
-        400,
-        `Unknown agent "${name}". Available agents: ${Object.keys(agents).join(", ")}.`,
-      );
-    }
+    // Validation happens inside the service; it throws before streaming, so
+    // the error middleware can still answer with a plain HTTP status.
+    const stream = agentService(req.body ?? {});
 
     res.status(200);
-
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
-    for await (const event of agentService({
-      ...req.body,
-    })) {
+    for await (const event of stream) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
 
-    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: EVENT.DONE })}\n\n`);
     res.end();
   } catch (error) {
     // Validation failed before streaming started: let the error
@@ -40,11 +31,18 @@ async function agentController(req, res, next) {
       return next(error);
     }
 
-    console.error("Error in chat controller:", error);
+    // Mid-stream failure: the status line is already sent, so report through
+    // the event envelope instead. Expected messages pass through; internal
+    // ones are sanitized (the full error goes to the server log).
+    console.error("Error in agent controller:", error);
+    const message =
+      error instanceof ResponseError
+        ? error.message
+        : "Internal server error while streaming the response.";
     try {
       if (!res.writableEnded) {
         res.write(
-          `data: ${JSON.stringify({ role: "error", content: { message: error.message } })}\n\n`,
+          `data: ${JSON.stringify({ role: EVENT.ERROR, content: { message } })}\n\n`,
         );
       }
     } catch {

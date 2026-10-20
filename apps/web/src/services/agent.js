@@ -1,60 +1,61 @@
 // src/services/agent.js
 import { apiFetch } from "./api.js";
 
+/**
+ * Stream one agent turn. Yields every SSE frame as a parsed event; transport
+ * and HTTP failures throw so the caller can show them (silence is worse).
+ */
 async function* agent(request) {
-  const body = request;
-  try {
-    const response = await apiFetch(`/agent`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+  const response = await apiFetch(`/agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
 
-    console.log('[web/services/agent] Fetch response ok:', response.ok);
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    if (!response.body) {
-      throw new Error("Response body is empty");
-    }
-
-    const stream = response.body.pipeThrough(new TextDecoderStream());
-
-    const reader = stream.getReader();
-
-    let buffer = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-
-      if (done) break;
-
-      buffer += value;
-
-      const events = buffer.split("\n\n");
-
-      buffer = events.pop() ?? "";
-
-      for (const event of events) {
-        if (!event.startsWith("data: ")) continue;
-
-        const data = JSON.parse(event.slice(6));
-        yield data;
-      }
-    }
-
-    // Proses event yang masih tersisa di buffer.
-    if (buffer.startsWith("data: ")) {
-      const data = JSON.parse(buffer.slice(6));
-      yield data;
-    }
-  } catch (error) {
-    console.error('[web/services/agent] Error:', error.message);
+  if (!response.ok) {
+    throw new Error(`Agent request failed with HTTP ${response.status}.`);
   }
+
+  if (!response.body) {
+    throw new Error("The gateway returned an empty response body.");
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+
+  let buffer = "";
+
+  const parse = (frame) => {
+    const line = frame.trim();
+    if (!line.startsWith("data: ")) return null;
+    try {
+      return JSON.parse(line.slice("data: ".length).trim());
+    } catch {
+      // One malformed frame must not kill the rest of the stream.
+      return null;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+
+    if (done) break;
+
+    buffer = (buffer + value).replace(/\r\n/g, "\n");
+
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      const event = parse(frame);
+      if (event !== null) yield event;
+    }
+  }
+
+  // A stream that ends without a trailing blank line still carries one event.
+  const trailing = parse(buffer);
+  if (trailing !== null) yield trailing;
 }
 
 export { agent };

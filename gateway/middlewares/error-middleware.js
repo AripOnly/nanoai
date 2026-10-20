@@ -1,4 +1,9 @@
-// gateway/middleware/error-middleware.js
+// gateway/middlewares/error-middleware.js
+//
+// One error envelope for every backend failure. Client-facing messages are
+// sanitized: 4xx text (validation, not found) is written for the caller and
+// passes through; 5xx text describes internals, so it is logged server-side
+// and replaced with a generic line.
 
 import { ResponseError } from "../error/response-error.js";
 import { EVENT } from "../../src/shared/event-type.js";
@@ -19,10 +24,18 @@ async function errorMiddleware(err, req, res, next) {
   const status =
     err instanceof ResponseError ? (err.status ?? 400) : (upstream ?? 500);
 
+  const callerFacing =
+    err instanceof ResponseError || (upstream !== null && upstream < 500);
+  if (status >= 500) {
+    console.error("[nanoai] request failed:", err);
+  }
+
   res.status(status).json({
     role: EVENT.ERROR,
     content: {
-      message: err.message,
+      message: callerFacing
+        ? err.message || "Request failed"
+        : "Internal server error",
     },
   });
 }

@@ -9,7 +9,7 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import XLSX from "xlsx";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath } from "#src/tools/shared/index.js";
 
 const MAX_SHEETS = 50;
 const MAX_ROWS = 100_000;
@@ -56,9 +56,7 @@ export const excelTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 function cleanCell(value, where) {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -71,8 +69,7 @@ function cleanCell(value, where) {
 }
 
 function resolveOutputPath(filePath) {
-  const root = resolveWorkspaceRoot();
-  const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
+  const resolved = resolveWorkspacePath(filePath);
   if (!resolved.toLowerCase().endsWith(".xlsx")) {
     throw new Error("Spreadsheet output path must end with .xlsx.");
   }

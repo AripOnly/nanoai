@@ -20,7 +20,7 @@ import {
   TableRow,
   TextRun,
 } from "docx";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath } from "#src/tools/shared/index.js";
 
 const MAX_BLOCKS = 500;
 const MAX_TABLE_ROWS = 1000;
@@ -74,9 +74,7 @@ export const wordTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 function assertText(value, where) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -183,8 +181,7 @@ function buildParagraph(block, index) {
 }
 
 function resolveOutputPath(filePath) {
-  const root = resolveWorkspaceRoot();
-  const resolved = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
+  const resolved = resolveWorkspacePath(filePath);
   if (!resolved.toLowerCase().endsWith(".docx")) {
     throw new Error("Word output path must end with .docx.");
   }

@@ -7,8 +7,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { rgGrep } from "#src/tools/shared/rg.js";
-import { resolveWorkspaceRoot, suggestSimilarPaths } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath, rgGrep, resolveWorkspaceRoot, suggestSimilarPaths } from "#src/tools/shared/index.js";
 
 const RESULT_LIMIT = 100;
 
@@ -45,9 +44,7 @@ export const grepTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 /**
  * Resolve the search target. Relative paths anchor at the workspace root
@@ -60,10 +57,7 @@ function resolveSearchTarget(searchPath) {
   if (searchPath === undefined) {
     return { cwd: root, file: undefined, display: root };
   }
-  if (typeof searchPath !== "string" || searchPath.trim() === "") {
-    throw new Error("Parameter 'path' must be a non-empty string when provided.");
-  }
-  const resolved = path.isAbsolute(searchPath) ? path.normalize(searchPath) : path.resolve(root, searchPath);
+  const resolved = resolveWorkspacePath(searchPath);
   let stat;
   try {
     stat = fs.statSync(resolved);

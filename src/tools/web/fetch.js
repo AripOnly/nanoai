@@ -11,7 +11,7 @@ import { Parser } from "htmlparser2";
 import TurndownService from "turndown";
 import dns from "node:dns/promises";
 import net from "node:net";
-import { IMAGE_MIMES, formatBytes, saveAttachment } from "#src/tools/shared/attachments.js";
+import { fail, formatBytes, IMAGE_MIMES, saveAttachment } from "#src/tools/shared/index.js";
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30 * 1000;
@@ -43,16 +43,14 @@ export const webFetchTool = {
       },
       timeout: {
         type: "number",
-        description: "Optional timeout in seconds (default 30, max 120).",
+        description: "Optional timeout in milliseconds (default 30000, max 120000).",
       },
     },
     required: ["url"],
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 function acceptHeaderFor(format) {
   switch (format) {
@@ -272,17 +270,24 @@ export async function webFetch(params = {}, context = {}) {
     if (typeof params !== "object" || params === null || Array.isArray(params)) {
       return fail("Parameters must be an object with 'url' and optional 'format' and 'timeout'.");
     }
-    const { url, format = "markdown", timeout = 30 } = params;
+    const { url, format = "markdown", timeout = DEFAULT_TIMEOUT_MS } = params;
     if (typeof url !== "string" || url.trim() === "") {
       return fail("Parameter 'url' must be a non-empty string.");
     }
     if (!FORMATS.includes(format)) {
       return fail(`Parameter 'format' must be one of: ${FORMATS.join(", ")}.`);
     }
-    if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0 || timeout > 120) {
-      return fail("Parameter 'timeout' must be a number of seconds between 1 and 120.");
+    if (
+      typeof timeout !== "number" ||
+      !Number.isFinite(timeout) ||
+      timeout < 1 ||
+      timeout > MAX_TIMEOUT_MS
+    ) {
+      return fail(
+        `Parameter 'timeout' must be a number of milliseconds between 1 and ${MAX_TIMEOUT_MS}.`,
+      );
     }
-    const timeoutMs = Math.min(timeout * 1000, MAX_TIMEOUT_MS);
+    const timeoutMs = timeout;
 
     const headers = {
       "User-Agent": BROWSER_UA,

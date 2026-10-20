@@ -7,9 +7,7 @@
 // relative paths anchor at the workspace root.
 
 import fs from "node:fs";
-import path from "node:path";
-import { resolveWorkspaceRoot, suggestSimilarPaths } from "#src/tools/shared/workspace.js";
-import { saveAttachment } from "#src/tools/shared/attachments.js";
+import { fail, resolveWorkspacePath, saveAttachment, suggestSimilarPaths } from "#src/tools/shared/index.js";
 import { isBinaryFile, sniffMediaMime } from "./media.js";
 import { isWordFile, readWordDocument } from "./word.js";
 import { isSpreadsheetFile, readSpreadsheet } from "./excel.js";
@@ -47,14 +45,7 @@ export const readTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
-
-function resolveReadPath(filePath) {
-  const root = resolveWorkspaceRoot();
-  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 function missError(requested, resolved) {
   const hints = suggestSimilarPaths(resolved);
@@ -127,7 +118,7 @@ export async function read(params = {}) {
       return fail("Parameter 'limit' must be a positive integer.");
     }
 
-    const resolved = resolveReadPath(requested);
+    const resolved = resolveWorkspacePath(requested);
     let stat;
     try {
       stat = fs.statSync(resolved);

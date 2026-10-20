@@ -15,7 +15,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createTwoFilesPatch, diffLines } from "diff";
-import { resolveWorkspaceRoot } from "#src/tools/shared/workspace.js";
+import { fail, resolveWorkspacePath, trimDiff } from "./shared/index.js";
+
+// Kept as a re-export while callers migrate to #src/tools/shared/index.js.
+export { trimDiff };
 
 // Similarity threshold for fuzzy block matching.
 const SIMILARITY_THRESHOLD = 0.65;
@@ -58,9 +61,7 @@ export const editTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in ./shared/fail.js (imported above).
 
 // ---------------------------------------------------------------------------
 // Per-file mutex. Concurrent edits to the same file are serialized through
@@ -78,15 +79,6 @@ function withFileLock(filePath, task) {
     if (locks.get(filePath) === next) locks.delete(filePath);
   });
   return next;
-}
-
-// ---------------------------------------------------------------------------
-// Paths. Relative paths anchor at the default save folder (nano-workspace);
-// absolute paths may point anywhere (e.g. Desktop) when the user names a location.
-// ---------------------------------------------------------------------------
-function resolveEditPath(filePath) {
-  const root = resolveWorkspaceRoot();
-  return path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(root, filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -440,38 +432,7 @@ export function replace(content, oldString, newString, replaceAll = false) {
   throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.");
 }
 
-// Dedents unified diffs so deeply indented files stay readable for the model.
-export function trimDiff(diff) {
-  const lines = diff.split("\n");
-  const contentLines = lines.filter(
-    (line) =>
-      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
-      !line.startsWith("---") &&
-      !line.startsWith("+++"),
-  );
-  if (contentLines.length === 0) return diff;
-  let min = Infinity;
-  for (const line of contentLines) {
-    const content = line.slice(1);
-    if (content.trim().length > 0) {
-      const match = content.match(/^(\s*)/);
-      if (match) min = Math.min(min, match[1].length);
-    }
-  }
-  if (min === Infinity || min === 0) return diff;
-  return lines
-    .map((line) => {
-      if (
-        (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
-        !line.startsWith("---") &&
-        !line.startsWith("+++")
-      ) {
-        return line[0] + line.slice(1).slice(min);
-      }
-      return line;
-    })
-    .join("\n");
-}
+// trimDiff() lives in ./shared/diff.js (imported above).
 
 export async function edit(params = {}, context = {}) {
   void context;
@@ -498,7 +459,7 @@ export async function edit(params = {}, context = {}) {
 
     let resolved;
     try {
-      resolved = resolveEditPath(filePath);
+      resolved = resolveWorkspacePath(filePath);
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }

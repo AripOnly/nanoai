@@ -322,6 +322,24 @@ class SessionStore {
       .run(name, id);
   }
 
+  // Give a session that still carries its auto-generated name
+  // ("session-xxxxxxxx") a permanent one from its first real prompt. A name
+  // the user chose is never touched, and an empty prompt is a no-op.
+  autoNameSession(id, prompt) {
+    assertSessionId(id);
+    if (typeof prompt !== "string" || prompt.trim() === "") {
+      return false;
+    }
+    const row = sql
+      .prepare("SELECT id, name FROM session WHERE id = ?")
+      .get(id);
+    if (!row || row.name !== `session-${row.id.slice(0, 8)}`) {
+      return false;
+    }
+    this.renameSession(id, nameFromPrompt(prompt));
+    return true;
+  }
+
   deleteSession(id) {
     assertSessionId(id);
     sql.prepare("DELETE FROM session WHERE id = ?").run(id);

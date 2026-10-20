@@ -2,8 +2,8 @@
 
 import { app } from "./application/web.js";
 import { getGatewayToken } from "./auth/token.js";
-import { closeDatabase } from "../src/session/sql.js";
-import { sessionStore } from "../src/session/session-store.js";
+import { closeDatabase } from "../src/session/index.js";
+import sessionService from "./service/session-service.js";
 
 const PORT = Number(process.env.PORT ?? 3060);
 
@@ -23,7 +23,7 @@ const server = app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
 
-const recovered = sessionStore.recoverAllInterruptedTurns();
+const recovered = sessionService.init();
 if (recovered > 0) {
   console.log(
     `[nanoai] Recovered ${recovered} interrupted turn(s) from the previous run.`,

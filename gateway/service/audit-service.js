@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import syncFs from "node:fs";
 import path from "node:path";
-import { STORAGE_DIR } from "../../src/session/sql.js";
+import { STORAGE_DIR } from "../../src/session/index.js";
 
 const AUDIT_PATH = path.join(STORAGE_DIR, "audit.log");
 
@@ -72,8 +72,17 @@ export function buildEntry(req, res, durationMs) {
 }
 
 export async function writeEntry(entry) {
+  // Append + fsync so the audit trail survives a hard crash. Open/close per
+  // write (instead of a long-lived handle) keeps rotation safe on Windows,
+  // where renaming a file with an open handle is blocked.
   try {
-    await fs.appendFile(AUDIT_PATH, `${JSON.stringify(entry)}\n`, "utf-8");
+    const handle = await fs.open(AUDIT_PATH, "a");
+    try {
+      await handle.appendFile(`${JSON.stringify(entry)}\n`, "utf-8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
     console.error("[audit] Failed to write audit entry:", error.message);
     return;

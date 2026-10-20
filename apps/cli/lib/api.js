@@ -2,7 +2,7 @@
 // HTTP client for the NanoAI gateway. The CLI runs on the same machine, so it
 // reads the gateway token from the local settings file instead of asking
 // the user to paste it.
-import { settings } from "../../../src/config/config.js";
+import { settings } from "#src/config/config.js";
 
 const PORT = process.env.PORT ?? "3060";
 const BASE_URL = process.env.NANO_GATEWAY_URL ?? `http://localhost:${PORT}/api/v1`;

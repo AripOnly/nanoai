@@ -6,17 +6,18 @@ import User from "./User.jsx";
 import Response from "./Response.jsx";
 import ToolCall from "./ToolCall.jsx";
 import { attachToolResults } from "../lib/tool-display.js";
-import { getCallId } from "../../../src/shared/call-id.js";
+import { getCallId } from "#src/shared/call-id.js";
+import { EVENT } from "#src/shared/event-type.js";
 
 export default function BoxChat({ chat }) {
   if (!Array.isArray(chat) || chat.length === 0) return null;
 
   return attachToolResults(chat).map((value, index) => {
-    if (value.role === "user") {
+    if (value.role === EVENT.USER) {
       return <User key={index}>{value.content?.text ?? value.content}</User>;
     }
 
-    if (value.role === "assistant") {
+    if (value.role === EVENT.ASSISTANT) {
       return (
         <Response
           key={index}
@@ -26,7 +27,7 @@ export default function BoxChat({ chat }) {
       );
     }
 
-    if (value.role === "compaction") {
+    if (value.role === EVENT.COMPACTION) {
       return (
         <Response
           key={index}
@@ -36,13 +37,13 @@ export default function BoxChat({ chat }) {
       );
     }
 
-    if (value.role === "tool_call") {
+    if (value.role === EVENT.TOOL_CALL) {
       // Key stabil per call_id: update preview/result menimpa baris yang sama,
       // menimpa baris yang sama, header tidak pernah tercetak ulang.
       return <ToolCall key={getCallId(value.content) ?? `call-${index}`} toolCall={value.content} />;
     }
 
-    if (value.role === "tool_result") {
+    if (value.role === EVENT.TOOL_RESULT) {
       const result = value.content?.result;
       const output =
         result && typeof result === "object" && typeof result.output === "string"
@@ -58,7 +59,7 @@ export default function BoxChat({ chat }) {
       );
     }
 
-    if (value.role === "error") {
+    if (value.role === EVENT.ERROR) {
       const message =
         value.content?.message ??
         (typeof value.content === "string"

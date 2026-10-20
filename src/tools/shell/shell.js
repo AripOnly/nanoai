@@ -9,7 +9,7 @@ import { acceptable, name as shellName } from "./select.js";
 import { render } from "./prompt.js";
 import { analyzeCommand } from "./parse.js";
 import { runShell } from "./run.js";
-import { limits } from "#src/tools/shared/truncate.js";
+import { fail, limits } from "#src/tools/shared/index.js";
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -35,6 +35,8 @@ function buildSchema() {
 
 export const shellTool = buildSchema();
 
+// Throws a plain Error; shell() converts it into a fail() result so every
+// failure leaves through the same envelope.
 function resolveCwd(workdir) {
   const home = os.homedir();
   if (!workdir || String(workdir).trim() === "") {
@@ -53,14 +55,25 @@ function resolveCwd(workdir) {
 export async function shell(params, context = {}) {
   const command = params?.command;
   if (typeof command !== "string" || command.trim() === "") {
-    throw new Error("Command must be a non-empty string.");
+    return fail("Parameter 'command' must be a non-empty string.");
   }
-  if (params?.timeout !== undefined && (!Number.isFinite(params.timeout) || params.timeout < 0)) {
-    throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`);
+  if (
+    params?.timeout !== undefined &&
+    (!Number.isFinite(params.timeout) || params.timeout < 0)
+  ) {
+    return fail(
+      `Parameter 'timeout' must be a non-negative number of milliseconds. Got: ${params.timeout}.`,
+    );
+  }
+
+  let cwd;
+  try {
+    cwd = resolveCwd(params?.workdir);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
   }
 
   const shellPath = currentShell();
-  const cwd = resolveCwd(params?.workdir);
   const timeout = params?.timeout ?? DEFAULT_TIMEOUT_MS;
 
   const analysis = analyzeCommand(command, cwd, shellPath);
@@ -105,6 +118,7 @@ export async function shell(params, context = {}) {
   });
 
   return {
+    success: true,
     output: result.output,
     exitCode: result.code,
     cwd,

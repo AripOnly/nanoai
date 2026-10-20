@@ -4,6 +4,8 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { agent } from "../../src/agents/agent.js";
+import { agentService } from "../../gateway/service/agent-service.js";
+import { ResponseError } from "../../gateway/error/response-error.js";
 import { checkCompaction } from "../../src/agents/compaction.js";
 import { toolExecute } from "../../src/agents/tool-execute.js";
 import { sessionStore } from "../../src/session/session-store.js";
@@ -38,6 +40,28 @@ describe("agent entry guards", () => {
     assert.ok(failures.length > 0, "expected an error event");
     assert.match(failures[0].content.message, /Unknown agent "raksasa"/);
     assert.match(failures[0].content.message, /nano/);
+    // User-facing errors are messages, never raw stack traces.
+    assert.ok(
+      !/\n\s+at /.test(failures[0].content.message),
+      "error event must not leak a stack trace",
+    );
+  });
+
+  it("agentService validates before streaming and throws 400s", () => {
+    assert.throws(
+      () => agentService({ name: "raksasa", prompt: "halo" }),
+      (error) =>
+        error instanceof ResponseError &&
+        error.status === 400 &&
+        /Unknown agent "raksasa"/.test(error.message),
+    );
+    assert.throws(
+      () => agentService({ name: "nano", prompt: "   " }),
+      (error) =>
+        error instanceof ResponseError &&
+        error.status === 400 &&
+        /prompt must be a non-empty string/.test(error.message),
+    );
   });
 
   it("toolExecute names the tool on bad JSON arguments", async () => {

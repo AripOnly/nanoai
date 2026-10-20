@@ -9,7 +9,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir } from "../../../src/shared/data-dir.js";
+import { dataDir } from "#src/shared/data-dir.js";
 
 const DEFAULT_PORT = 3060;
 const MAX_LOG_TAIL_BYTES = 256 * 1024;

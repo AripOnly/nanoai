@@ -66,7 +66,8 @@ export function suggestSimilarPaths(targetPath, max = 3) {
   }
 }
 
-export function resolveWorkspacePath(filePath) {  if (typeof filePath !== "string" || filePath.trim() === "") {
+export function resolveWorkspacePath(filePath) {
+  if (typeof filePath !== "string" || filePath.trim() === "") {
     throw new Error("Parameter 'path' must be a non-empty string.");
   }
 

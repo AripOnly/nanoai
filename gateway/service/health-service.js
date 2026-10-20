@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import sql from "../../src/session/sql.js";
+import { ping } from "../../src/session/index.js";
 import { settings } from "../../src/config/config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,7 +34,7 @@ export async function buildHealth() {
     checks.settings = error instanceof Error ? error.message : String(error);
   }
   try {
-    sql.prepare("SELECT 1").get();
+    ping();
   } catch (error) {
     checks.database = error instanceof Error ? error.message : String(error);
   }

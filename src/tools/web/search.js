@@ -4,6 +4,7 @@
 // Unlike snippet APIs, these return LLM-optimized page content, which is why
 // search answers are richer than nano's old Serper integration.
 
+import { fail } from "#src/tools/shared/index.js";
 import { providerLabel, searchExa, searchParallel, selectProvider } from "./mcp.js";
 
 const year = new Date().getFullYear();
@@ -56,9 +57,7 @@ export const webSearchTool = {
   },
 };
 
-function fail(error) {
-  return { success: false, error };
-}
+// fail() lives in #src/tools/shared/fail.js (imported above).
 
 export async function webSearch(params = {}, context = {}) {
   try {
@@ -93,9 +92,9 @@ export async function webSearch(params = {}, context = {}) {
       return fail(error instanceof Error ? error.message : String(error));
     }
     if (!content || content.trim() === "") {
-      return { success: true, content: "No search results found. Please try a different query.", provider };
+      return { success: true, output: "No search results found. Please try a different query.", provider: providerLabel(provider) };
     }
-    return { success: true, content, provider: providerLabel(provider) };
+    return { success: true, output: content, provider: providerLabel(provider) };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }

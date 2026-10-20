@@ -1,5 +1,13 @@
 // src/services/api.js
-const baseUrl = "http://localhost:3060/api/v1";
+//
+// When the gateway serves the built dashboard, the API lives on the same
+// origin. During `vite dev` the dashboard runs on its own port, so fall back
+// to the default gateway port. VITE_API_BASE overrides both.
+const baseUrl =
+  import.meta.env.VITE_API_BASE ??
+  (import.meta.env.DEV
+    ? "http://localhost:3060/api/v1"
+    : `${window.location.origin}/api/v1`);
 
 const TOKEN_STORAGE_KEY = "nano_gateway_token";
 

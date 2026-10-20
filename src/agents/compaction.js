@@ -1,7 +1,7 @@
 // src/agents/compaction.js
 
-import { llm } from "#src/llm/llm.js";
-import { collectAttachmentIds } from "#src/llm/providers/google/google.js";
+import { findModel, getProvider, listProviders } from "#src/llm/registry.js";
+import { collectAttachmentIds } from "#src/llm/attachment-expansion.js";
 import { createInstruction } from "#src/prompts/createInstruction.js";
 import { EVENT } from "#src/shared/event-type.js";
 import { sessionStore } from "#src/session/session-store.js";
@@ -11,11 +11,16 @@ import { settings } from "#src/config/config.js";
 export async function checkCompaction({ provider = null, model, token = null }) {
   const { ratio } = await settings.get("compaction");
 
-  const candidates =
-    provider && llm[provider]
-      ? llm[provider].models
-      : Object.values(llm).flatMap((entry) => entry.models);
-  const modelLimit = candidates.find((m) => m.id === model)?.context;
+  let modelLimit;
+  if (provider) {
+    modelLimit = findModel(provider, model)?.context;
+  } else {
+    // No provider named: search every registered provider's catalog.
+    for (const id of listProviders()) {
+      modelLimit = findModel(id, model)?.context;
+      if (modelLimit) break;
+    }
+  }
 
   if (!modelLimit) {
     return false;
@@ -97,7 +102,7 @@ export async function* compaction({ conversation, session_id, provider, model })
   };
 
   let summary = "";
-  for await (const event of llm[provider].request(request)) {
+  for await (const event of getProvider(provider).request(request)) {
     if (event.role === EVENT.ASSISTANT) {
       summary += event.content?.text ?? "";
     }
