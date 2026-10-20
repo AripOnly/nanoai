@@ -87,9 +87,19 @@ the code. Environment variables (all optional):
 | `NANO_WORKSPACE`          | `~/nano-workspace`             | Default working directory for all tools  |
 | `NANO_WEBSEARCH_PROVIDER` | per-session split              | `exa` or `parallel` to pin web search    |
 | `NANO_GATEWAY_URL`        | `http://localhost:3060/api/v1` | Gateway address for the CLI              |
-| `PORT`                    | `3060`                         | Gateway listen port                      |
-| `HOST`                    | `127.0.0.1`                    | Gateway bind address (loopback default)  |
+| `NANO_GATEWAY_TOKEN`      | generated on first boot        | Overrides the stored token; API updates to it return 409 |
+| `NANO_CORS_ORIGINS`       | empty                          | Comma-separated extra browser origins    |
+| `PORT`                    | `3060`                         | Gateway listen port (overrides `gateway.port`) |
+| `HOST`                    | `127.0.0.1`                    | Gateway bind address (overrides `gateway.host`) |
 | `EXA_API_KEY`             | —                              | Optional: higher web-search limits       |
+
+`nano.config.json` supports hot-reload for safe settings (model, provider keys,
+provider endpoints, compaction, CORS, and token).
+The gateway watches the file (about one second) and keeps the last good
+snapshot if an edit is invalid; `/health` reports the revision and error.
+`gateway.host` and `gateway.port` are saved but require a restart, and `HOST` /
+`PORT` still win at boot. API responses expose `X-Settings-Revision` and
+`X-Restart-Required`.
 
 For 24/7 operation, run the gateway as a system service (Task Scheduler on
 Windows, systemd/pm2 on Linux) with `NANO_WORKSPACE` set explicitly.

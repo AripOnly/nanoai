@@ -1,66 +1,34 @@
 // gateway/auth/origins.js
 //
-// Allowed browser origins for CORS. Loaded from the environment and the
-// settings file; refreshed lazily after a short TTL so edits made outside the
-// gateway (config file, env) are picked up without a restart — CORS checks
-// are synchronous, so a stale snapshot triggers a background reload instead
-// of blocking the request. The settings API also calls setOrigins() directly
-// for instant effect.
+// Allowed browser origins for CORS. The settings snapshot is the source; the
+// environment can add origins for deployments that cannot edit the config
+// file. getOrigins() is intentionally synchronous and cache-free: it reads
+// the current snapshot on every request, so an API update takes effect on the
+// very next CORS check.
 
-import { settings } from "../../src/config/config.js";
+import { getSync, initSettings } from "../../src/config/index.js";
 
-const REFRESH_MS = 10_000;
-
-let current = [];
-let loadedAt = 0;
-let inflight = null;
-
-async function load() {
-  const fromEnv = (process.env.NANO_CORS_ORIGINS ?? "")
+function environmentOrigins() {
+  return (process.env.NANO_CORS_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-
-  let fromSettings = [];
-  try {
-    const stored = await settings.get("cors_origins");
-    if (Array.isArray(stored)) {
-      fromSettings = stored;
-    }
-  } catch {
-    fromSettings = [];
-  }
-
-  return [...new Set([...fromEnv, ...fromSettings])];
 }
 
-/** Boot-time load: the first snapshot must be ready before requests arrive. */
+/** Boot-time initialization: wait for the first settings snapshot. */
 export async function initOrigins() {
-  current = await load();
-  loadedAt = Date.now();
-  return current;
+  await initSettings();
+  return getOrigins();
 }
 
 export function getOrigins() {
-  if (Date.now() - loadedAt > REFRESH_MS && !inflight) {
-    inflight = load()
-      .then((list) => {
-        current = list;
-        loadedAt = Date.now();
-      })
-      .catch(() => {
-        // Unreadable settings: keep the snapshot and back off a full TTL.
-        loadedAt = Date.now();
-      })
-      .finally(() => {
-        inflight = null;
-      });
+  let stored = [];
+  try {
+    const value = getSync("cors_origins");
+    if (Array.isArray(value)) stored = value;
+  } catch {
+    // Settings not initialized (or unreadable): environment origins still
+    // work. Normal boot always initializes before the middleware is used.
   }
-
-  return current;
-}
-
-export function setOrigins(list) {
-  current = [...new Set(Array.isArray(list) ? list : [])];
-  loadedAt = Date.now();
+  return [...new Set([...environmentOrigins(), ...stored])];
 }

@@ -1,16 +1,27 @@
 // gateway/service/settings-service.js
+//
+// HTTP-facing settings use-cases. Every PUT is one validated settings.update
+// call (one atomic file write, one revision), even when the body changes
+// several keys. Nested objects that are conceptually patches (compaction,
+// provider_keys, provider_endpoints, gateway) are merged here before the
+// single update.
 
 import { ResponseError } from "../error/response-error.js";
-import { settings } from "../../src/config/config.js";
+import {
+  ConfigError,
+  getSnapshot,
+  initSettings,
+  settings,
+} from "../../src/config/index.js";
 import {
   getProvider,
   isKnownModel,
   isKnownProvider,
   listProviders as providerIds,
 } from "../../src/llm/registry.js";
-import { setOrigins } from "../auth/origins.js";
+import { isGatewayTokenEnvLocked } from "../auth/token.js";
 
-const SECRET_KEYS = ["api_key", "serper_api_key"];
+const SECRET_KEYS = ["api_key", "serper_api_key", "gateway_token"];
 
 const ALLOWED_KEYS = [
   "username",
@@ -20,6 +31,21 @@ const ALLOWED_KEYS = [
   "compaction",
   "cors_origins",
   "provider_keys",
+  "provider_endpoints",
+  "gateway_token",
+  "gateway",
+];
+
+const PUBLIC_KEYS = [
+  "username",
+  "model",
+  "api_key",
+  "serper_api_key",
+  "provider_keys",
+  "provider_endpoints",
+  "compaction",
+  "cors_origins",
+  "gateway",
 ];
 
 function maskSecret(value) {
@@ -52,6 +78,14 @@ function toPublic(clean) {
   }
 
   return result;
+}
+
+function publicSettings(value) {
+  const result = {};
+  for (const key of PUBLIC_KEYS) {
+    result[key] = value[key];
+  }
+  return toPublic(result);
 }
 
 function validateModel(value) {
@@ -102,6 +136,16 @@ function validateCompaction(value) {
     throw new ResponseError(400, "compaction must be an object");
   }
 
+  const unknown = Object.keys(value).filter(
+    (key) => key !== "ratio" && key !== "keep_turn",
+  );
+  if (unknown.length > 0) {
+    throw new ResponseError(
+      400,
+      `compaction contains an unknown key "${unknown[0]}"`,
+    );
+  }
+
   const result = {};
 
   if (value.ratio !== undefined) {
@@ -122,6 +166,112 @@ function validateCompaction(value) {
       );
     }
     result.keep_turn = value.keep_turn;
+  }
+
+  return result;
+}
+
+function validateProviderKeys(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ResponseError(400, "provider_keys must be an object");
+  }
+
+  const result = {};
+  for (const [provider, key] of Object.entries(value)) {
+    if (typeof provider !== "string" || provider.trim() === "") {
+      throw new ResponseError(400, "provider_keys names must be non-empty");
+    }
+    if (key === null) {
+      result[provider] = null;
+      continue;
+    }
+    if (typeof key !== "string" || key.trim() === "") {
+      throw new ResponseError(
+        400,
+        `provider_keys["${provider}"] must be a non-empty string or null`,
+      );
+    }
+    result[provider] = key;
+  }
+
+  return result;
+}
+
+function validateProviderEndpoints(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ResponseError(400, "provider_endpoints must be an object");
+  }
+
+  const result = {};
+  for (const [provider, endpoint] of Object.entries(value)) {
+    if (typeof provider !== "string" || provider.trim() === "") {
+      throw new ResponseError(400, "provider_endpoints names must be non-empty");
+    }
+    if (endpoint === null) {
+      result[provider] = null;
+      continue;
+    }
+    if (typeof endpoint !== "string" || endpoint.trim() === "") {
+      throw new ResponseError(
+        400,
+        `provider_endpoints["${provider}"] must be a non-empty URL or null`,
+      );
+    }
+    try {
+      const parsed = new URL(endpoint);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("bad protocol");
+      }
+    } catch {
+      throw new ResponseError(
+        400,
+        `provider_endpoints["${provider}"] must be a valid http(s) URL`,
+      );
+    }
+    result[provider] = endpoint;
+  }
+
+  return result;
+}
+
+function validateGateway(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ResponseError(400, "gateway must be an object");
+  }
+
+  const unknown = Object.keys(value).filter(
+    (key) => key !== "host" && key !== "port",
+  );
+  if (unknown.length > 0) {
+    throw new ResponseError(
+      400,
+      `gateway contains an unknown key "${unknown[0]}"`,
+    );
+  }
+
+  const result = {};
+  if (value.host !== undefined) {
+    if (
+      value.host !== null &&
+      (typeof value.host !== "string" || value.host.trim() === "")
+    ) {
+      throw new ResponseError(400, "gateway.host must be a non-empty string or null");
+    }
+    result.host = value.host;
+  }
+  if (value.port !== undefined) {
+    if (
+      value.port !== null &&
+      (!Number.isInteger(value.port) ||
+        value.port < 1 ||
+        value.port > 65535)
+    ) {
+      throw new ResponseError(
+        400,
+        "gateway.port must be an integer between 1 and 65535 or null",
+      );
+    }
+    result.port = value.port;
   }
 
   return result;
@@ -194,91 +344,41 @@ function validateUpdate(body) {
     validated.provider_keys = validateProviderKeys(body.provider_keys);
   }
 
+  if (body.provider_endpoints !== undefined) {
+    validated.provider_endpoints = validateProviderEndpoints(
+      body.provider_endpoints,
+    );
+  }
+
+  if (body.gateway_token !== undefined) {
+    if (isGatewayTokenEnvLocked()) {
+      throw new ResponseError(
+        409,
+        "gateway_token is controlled by NANO_GATEWAY_TOKEN and cannot be updated while the environment override is set.",
+      );
+    }
+    validated.gateway_token = validateSecret(
+      body.gateway_token,
+      "gateway_token",
+    );
+  }
+
+  if (body.gateway !== undefined) {
+    validated.gateway = validateGateway(body.gateway);
+  }
+
   return validated;
 }
 
-function validateProviderKeys(value) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ResponseError(400, "provider_keys must be an object");
-  }
-
-  const result = {};
-  for (const [provider, key] of Object.entries(value)) {
-    if (typeof provider !== "string" || provider.trim() === "") {
-      throw new ResponseError(400, "provider_keys names must be non-empty");
-    }
-    if (key === null) {
-      result[provider] = null;
-      continue;
-    }
-    if (typeof key !== "string" || key.trim() === "") {
-      throw new ResponseError(
-        400,
-        `provider_keys["${provider}"] must be a non-empty string or null`,
-      );
-    }
-    result[provider] = key;
-  }
-
-  return result;
-}
-
-async function getSettings() {
-  const current = await settings.get([
-    "username",
-    "model",
-    "api_key",
-    "serper_api_key",
-    "compaction",
-  ]);
-
-  let corsOrigins = [];
-  try {
-    const stored = await settings.get("cors_origins");
-    if (Array.isArray(stored)) {
-      corsOrigins = stored;
-    }
-  } catch {
-    corsOrigins = [];
-  }
-
-  let providerKeys = {};
-  try {
-    const stored = await settings.get("provider_keys");
-    if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-      providerKeys = stored;
-    }
-  } catch {
-    providerKeys = {};
-  }
-
-  return toPublic({ ...current, cors_origins: corsOrigins, provider_keys: providerKeys });
-}
-
-async function updateSettings(body) {
-  const validated = validateUpdate(body);
+function mergePatch(current, validated) {
+  const patch = { ...validated };
 
   if (validated.compaction !== undefined) {
-    const current = await settings.get("compaction");
-    await settings.set("compaction", { ...current, ...validated.compaction });
-  }
-
-  if (validated.cors_origins !== undefined) {
-    await settings.set("cors_origins", validated.cors_origins);
-    setOrigins(validated.cors_origins);
+    patch.compaction = { ...current.compaction, ...validated.compaction };
   }
 
   if (validated.provider_keys !== undefined) {
-    let current = {};
-    try {
-      const stored = await settings.get("provider_keys");
-      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-        current = stored;
-      }
-    } catch {
-      current = {};
-    }
-    const merged = { ...current };
+    const merged = { ...current.provider_keys };
     for (const [provider, key] of Object.entries(validated.provider_keys)) {
       if (key === null) {
         delete merged[provider];
@@ -286,15 +386,108 @@ async function updateSettings(body) {
         merged[provider] = key;
       }
     }
-    await settings.set("provider_keys", merged);
+    patch.provider_keys = merged;
   }
 
-  for (const [key, value] of Object.entries(validated)) {
-    if (key === "compaction" || key === "cors_origins" || key === "provider_keys") continue;
-    await settings.set(key, value);
+  if (validated.provider_endpoints !== undefined) {
+    const merged = { ...current.provider_endpoints };
+    for (const [provider, endpoint] of Object.entries(
+      validated.provider_endpoints,
+    )) {
+      if (endpoint === null) {
+        delete merged[provider];
+      } else {
+        merged[provider] = endpoint;
+      }
+    }
+    patch.provider_endpoints = merged;
   }
 
-  return getSettings();
+  if (validated.gateway !== undefined) {
+    patch.gateway = { ...current.gateway, ...validated.gateway };
+  }
+
+  return patch;
+}
+
+export async function getSettings() {
+  await initSettings();
+  return publicSettings(getSnapshot().value);
+}
+
+export function getSettingsMeta() {
+  const snapshot = getSnapshot();
+  if (!snapshot) {
+    return {
+      revision: null,
+      restartRequired: false,
+      lastError: null,
+      source: null,
+      updatedAt: null,
+    };
+  }
+  return {
+    revision: snapshot.revision,
+    restartRequired: snapshot.restartRequired,
+    lastError: snapshot.lastError,
+    source: snapshot.source,
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+export async function updateSettingsWithMeta(body, { ifMatch, origin } = {}) {
+  await initSettings();
+  const current = getSnapshot();
+
+  if (ifMatch !== undefined && ifMatch !== null && ifMatch !== "") {
+    if (String(ifMatch) !== String(current.revision)) {
+      throw new ResponseError(
+        409,
+        `settings revision changed (expected ${ifMatch}, current ${current.revision})`,
+      );
+    }
+  }
+
+  const validated = validateUpdate(body);
+
+  // Do not let a browser remove the origin it is currently calling from.
+  // Otherwise a successful PUT would make every following request fail CORS
+  // and lock the operator out of the dashboard. File edits and CLI requests
+  // (no Origin header) remain unrestricted.
+  if (
+    validated.cors_origins !== undefined &&
+    typeof origin === "string" &&
+    origin !== "" &&
+    current.value.cors_origins.includes(origin) &&
+    !validated.cors_origins.includes(origin)
+  ) {
+    throw new ResponseError(
+      400,
+      `refusing to remove the origin of the current request (${origin}); keep it in cors_origins or use a non-browser client`,
+    );
+  }
+
+  const patch = mergePatch(current.value, validated);
+
+  try {
+    const snapshot = await settings.update(patch);
+    return {
+      data: publicSettings(snapshot.value),
+      revision: snapshot.revision,
+      restartRequired: snapshot.restartRequired,
+    };
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      throw new ResponseError(400, error.message);
+    }
+    throw error;
+  }
+}
+
+/** Backwards-compatible shape: callers that only need the public settings. */
+export async function updateSettings(body, options) {
+  const result = await updateSettingsWithMeta(body, options);
+  return result.data;
 }
 
 function listProviders() {
@@ -311,4 +504,10 @@ function listProviders() {
   });
 }
 
-export default { getSettings, updateSettings, listProviders };
+export default {
+  getSettings,
+  getSettingsMeta,
+  updateSettings,
+  updateSettingsWithMeta,
+  listProviders,
+};

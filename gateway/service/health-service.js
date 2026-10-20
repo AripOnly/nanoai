@@ -1,15 +1,19 @@
 // gateway/service/health-service.js
 //
 // Liveness + readiness probe backing GET /health (unauthenticated by design:
-// monitors must reach it without a token). Cheap by construction: one settings
-// read and one SELECT 1, both guarded so a broken dependency degrades the
-// verdict instead of crashing the probe.
+// monitors must reach it without a token). Reads the settings snapshot rather
+// than the file, so a broken external edit is visible as settings_error while
+// the last-known-good configuration keeps serving. Database ping is guarded
+// separately.
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ping } from "../../src/session/index.js";
-import { settings } from "../../src/config/config.js";
+import {
+  getSnapshot,
+  initSettings,
+} from "../../src/config/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,24 +29,51 @@ function gatewayVersion() {
   return cachedVersion;
 }
 
+function safeError(error) {
+  if (error?.name === "ConfigError") return error.message;
+  if (error?.code === "ENOENT") return "settings file is missing";
+  if (error?.code === "EACCES" || error?.code === "EPERM") {
+    return "settings file is not readable";
+  }
+  return "settings could not be loaded";
+}
+
 export async function buildHealth() {
   const checks = { settings: "ok", database: "ok" };
+  let snapshot = null;
+
   try {
-    const model = await settings.get("model");
-    if (typeof model !== "string" || model === "") throw new Error("model setting is empty");
+    await initSettings();
+    snapshot = getSnapshot();
+    if (!snapshot) {
+      throw new Error("settings snapshot is unavailable");
+    }
+    const model = snapshot.value.model;
+    if (typeof model !== "string" || model === "") {
+      throw new Error("model setting is empty");
+    }
+    if (snapshot.lastError) {
+      checks.settings = snapshot.lastError;
+    }
   } catch (error) {
-    checks.settings = error instanceof Error ? error.message : String(error);
+    checks.settings = safeError(error);
   }
+
   try {
     ping();
   } catch (error) {
     checks.database = error instanceof Error ? error.message : String(error);
   }
+
   const degraded = Object.values(checks).some((status) => status !== "ok");
   return {
     status: degraded ? "degraded" : "ok",
     uptime: Math.round(process.uptime()),
     version: gatewayVersion(),
     checks,
+    settings_revision: snapshot?.revision ?? null,
+    settings_error: snapshot?.lastError ?? (checks.settings === "ok" ? null : checks.settings),
+    settings_source: snapshot?.source ?? null,
+    restart_required: snapshot?.restartRequired ?? false,
   };
 }

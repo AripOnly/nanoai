@@ -21,9 +21,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const app = express();
 
-// First CORS snapshot must be ready before requests arrive; later changes are
-// picked up by the origins module's TTL refresh or by setOrigins() from the
-// settings API.
+// First settings snapshot (and therefore the CORS list) must be ready before
+// requests arrive. Later changes are read from the live snapshot on each
+// request; there is no TTL.
 await initOrigins();
 
 app.use(
@@ -36,6 +36,7 @@ app.use(
       }
       callback(new ResponseError(403, `Origin not allowed: ${origin}`));
     },
+    exposedHeaders: ["X-Settings-Revision", "X-Restart-Required"],
   }),
 );
 // Audit first: it sits before the remaining middleware so even body-parser

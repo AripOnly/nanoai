@@ -4,11 +4,18 @@ import { app } from "./application/web.js";
 import { getGatewayToken } from "./auth/token.js";
 import { closeDatabase } from "../src/session/index.js";
 import sessionService from "./service/session-service.js";
-import { bootGateway, resolveHost } from "./boot.js";
+import { bootGateway, resolveListen } from "./boot.js";
 import { abortActiveTurns } from "./lifecycle/active-turns.js";
+import {
+  getSnapshot,
+  initSettings,
+  startSettingsWatcher,
+  stopSettingsWatcher,
+} from "../src/config/index.js";
 
-const PORT = Number(process.env.PORT ?? 3060);
-const HOST = resolveHost();
+// The web module already awaits initOrigins(), which initializes the snapshot.
+// Calling init again is cheap and makes the bootstrap order explicit here.
+await initSettings();
 
 const { token, created } = await getGatewayToken();
 
@@ -21,6 +28,15 @@ if (created) {
     "[nanoai] Save it now. Every /api request needs: Authorization: Bearer <token>.",
   );
 }
+
+const { port: PORT, host: HOST } = resolveListen({
+  gateway: getSnapshot().value.gateway,
+});
+
+// Hot settings must be observable before the first request, but after the
+// initial snapshot and token bootstrap so our own writes are not reloaded as
+// external edits. stopSettingsWatcher() runs on every failure and shutdown.
+startSettingsWatcher();
 
 let booted;
 try {
@@ -36,6 +52,7 @@ try {
     },
   });
 } catch (error) {
+  stopSettingsWatcher();
   console.error("[nanoai] Boot failed:", error);
   process.exit(1);
 }
@@ -50,6 +67,7 @@ if (recovered > 0) {
 // A stale instance still holding the port is the most common boot failure
 // (e.g. rapid restarts). Say so plainly instead of dumping EADDRINUSE.
 server.on("error", (error) => {
+  stopSettingsWatcher();
   if (error?.code === "EADDRINUSE") {
     console.error(
       `[nanoai] Port ${PORT} on ${HOST} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
@@ -68,6 +86,10 @@ server.requestTimeout = 0;
 
 function shutdown(signal) {
   console.log(`[nanoai] Received ${signal}, shutting down...`);
+
+  // Stop observing the file before closing sockets; no reload should race
+  // the shutdown path.
+  stopSettingsWatcher();
 
   // Stop provider/tool work first. The controllers' generators then commit
   // their partial turns before server.close() finishes waiting for sockets.
