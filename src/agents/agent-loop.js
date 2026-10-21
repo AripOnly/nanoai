@@ -165,6 +165,7 @@ export async function* agentLoop(request) {
           sessionID: request.session_id,
           allowedTools: request.allowedTools,
           policy,
+          jobs: request.jobs ?? null,
           onUpdate: (update = {}) => {
             pendingUpdates.push({
               role: EVENT.TOOL_UPDATE,

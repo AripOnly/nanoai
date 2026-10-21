@@ -90,10 +90,18 @@ function renameSession(req, res, next) {
   return updateSession(req, res, next);
 }
 
-function deleteSession(req, res, next) {
+async function deleteSession(req, res, next) {
   try {
     const { session_id } = req.params;
     requireSessionId(session_id);
+    // Kill every active job before the session row (and its job rows) cascade
+    // away; otherwise the child processes would outlive their owner.
+    const jobs = req.app.locals.jobs;
+    if (jobs && typeof jobs.killBySession === "function") {
+      await jobs.killBySession(session_id, {
+        reason: "Session deleted.",
+      });
+    }
     return res.status(200).send(sessionService.deleteSession(session_id));
   } catch (error) {
     next(error);

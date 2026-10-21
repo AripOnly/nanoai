@@ -23,7 +23,8 @@ import {
   stopModelCatalogWatcher,
 } from "../src/models/index.js";
 import { getProviderRegistry } from "../src/llm/registry.js";
-import { createRuntime } from "../src/runtime/index.js";
+import { createRuntime, createJobNotice } from "../src/runtime/index.js";
+import { createJobManager } from "../src/jobs/index.js";
 
 // Boot order is a safety property: settings and the model catalog must be
 // readable, the gateway token must exist, and the runtime must be built before
@@ -43,13 +44,37 @@ if (created) {
   );
 }
 
+const jobs = createJobManager({ config: getSnapshot });
+
 const runtime = createRuntime({
   providers: getProviderRegistry(),
   config: getSnapshot,
   catalog: getCatalogSnapshot,
+  jobs,
 });
 
-const app = await createApp({ runtime });
+const jobNotice = createJobNotice({
+  runtime,
+  jobs,
+  config: getSnapshot,
+});
+
+// Reconcile detached jobs BEFORE the port opens. A job that finished while the
+// gateway was down is finalized here; pending notices are only dispatched after
+// session recovery and listen, below. The completion handler is intentionally
+// installed later so reconciliation cannot race session recovery.
+try {
+  const summary = await jobs.init();
+  if (summary.inspected > 0) {
+    console.log(
+      `[nanoai] Recovered jobs: ${summary.running} running, ${summary.finished} finished, ${summary.lost} lost.`,
+    );
+  }
+} catch (error) {
+  console.error("[nanoai] Job reconciliation failed:", error);
+}
+
+const app = await createApp({ runtime, jobs });
 
 const { port: PORT, host: HOST } = resolveListen({
   gateway: getSnapshot().value.gateway,
@@ -92,10 +117,18 @@ if (recovered > 0) {
   );
 }
 
+// Now that session recovery is complete and the port is bound, turn persisted
+// pending notifications into notice turns. This never blocks startup.
+jobs.setCompletionHandler((job) => jobNotice.enqueue(job));
+void jobNotice.start().catch((error) => {
+  console.error("[nanoai] Job notice dispatch failed:", error);
+});
+
 // A stale instance still holding the port is the most common boot failure
 // (e.g. rapid restarts). Say so plainly instead of dumping EADDRINUSE.
 server.on("error", (error) => {
   stopWatchers();
+  jobs.dispose();
   if (error?.code === "EADDRINUSE") {
     console.error(
       `[nanoai] Port ${PORT} on ${HOST} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
@@ -112,8 +145,16 @@ server.on("error", (error) => {
 // protections, not a short idle timer.
 server.requestTimeout = 0;
 
-function shutdown(signal) {
+async function shutdown(signal) {
   console.log(`[nanoai] Received ${signal}, shutting down...`);
+
+  // Arm the hard stop before any await: a wedged notice turn or socket must
+  // not be able to keep the process alive indefinitely.
+  const forceExit = setTimeout(() => {
+    console.log("[nanoai] Shutdown timed out, forcing exit.");
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
 
   // Stop observing files before closing sockets; no reload should race the
   // shutdown path.
@@ -122,13 +163,11 @@ function shutdown(signal) {
   // Stop provider/tool work first. The controllers' generators then commit
   // their partial turns before server.close() finishes waiting for sockets.
   abortActiveTurns(new Error(`Gateway shutdown (${signal})`));
+  // Stop auto-continue first. Dispose watchers but NEVER kill detached jobs:
+  // they are supposed to outlive the gateway.
+  await jobNotice.dispose();
+  jobs.dispose();
   runtime.dispose?.();
-
-  const forceExit = setTimeout(() => {
-    console.log("[nanoai] Shutdown timed out, forcing exit.");
-    process.exit(1);
-  }, 10_000);
-  forceExit.unref();
 
   server.close(() => {
     try {
@@ -141,5 +180,5 @@ function shutdown(signal) {
   });
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

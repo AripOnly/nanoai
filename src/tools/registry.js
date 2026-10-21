@@ -13,6 +13,7 @@ import { edit, editTool } from "./edit.js";
 import { webSearch, webSearchTool } from "./web/search.js";
 import { webFetch, webFetchTool } from "./web/fetch.js";
 import { shell, shellTool } from "./shell/shell.js";
+import { process, processTool } from "./process/process.js";
 import { glob, globTool } from "./glob.js";
 import { grep, grepTool } from "./grep.js";
 import { assertToolContract } from "./contract.js";
@@ -58,6 +59,12 @@ export const TOOL_DEFINITIONS = Object.freeze([
     schema: shellTool,
     capabilities: SHELL,
     execute: shell,
+  }),
+  Object.freeze({
+    name: "process",
+    schema: processTool,
+    capabilities: SHELL,
+    execute: process,
   }),
   Object.freeze({
     name: "glob",

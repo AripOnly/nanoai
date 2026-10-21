@@ -15,6 +15,7 @@ const FULL_POLICY = Object.freeze({
   maxSteps: 40,
   maxToolCallsPerStep: 12,
   maxToolConcurrency: 4,
+  shell: Object.freeze({ background: true }),
 });
 
 const READ_ONLY_POLICY = Object.freeze({
@@ -24,6 +25,7 @@ const READ_ONLY_POLICY = Object.freeze({
   maxSteps: 20,
   maxToolCallsPerStep: 8,
   maxToolConcurrency: 4,
+  shell: Object.freeze({ background: false }),
 });
 
 const COMPACTION_POLICY = Object.freeze({
@@ -33,6 +35,7 @@ const COMPACTION_POLICY = Object.freeze({
   maxSteps: 1,
   maxToolCallsPerStep: 0,
   maxToolConcurrency: 1,
+  shell: Object.freeze({ background: false }),
 });
 
 const nano = Object.freeze({
@@ -45,6 +48,7 @@ const nano = Object.freeze({
     "writeExcel",
     "edit",
     "shell",
+    "process",
     "glob",
     "grep",
     "webSearch",

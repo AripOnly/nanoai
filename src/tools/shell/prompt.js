@@ -19,6 +19,12 @@ IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO N
 
 \${commandSection}
 
+# Background jobs
+- Set \`background: true\` for long-running work (builds, test suites, servers, downloads). The command keeps running if the gateway restarts and the session can continue when it finishes.
+- Poll or control it with the \`process\` tool (\`poll\`, \`log\`, \`list\`, \`kill\`, \`remove\`). Do not busy-wait or call sleep in the same turn.
+- \`notify: "failure"\` wakes the session only for a non-zero exit; \`"never"\` leaves completion to polling.
+- Logs are bounded and tailed into the prompt. Read specific ranges with \`process.log\` instead of dumping the whole log.
+
 # Git and GitHub
 - Only commit, amend, push, or create PRs when explicitly requested.
 - Before committing, inspect \`git status\`, \`git diff\`, and \`git log --oneline -10\`; stage only intended files and never commit secrets.
@@ -45,6 +51,22 @@ export function parameterSchema() {
         type: "string",
         description:
           "The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.",
+      },
+      background: {
+        type: "boolean",
+        description:
+          "Run detached and return a job id immediately. Use for long builds, servers, downloads, or tests. Poll with the process tool; never wait with sleep.",
+      },
+      name: {
+        type: "string",
+        description:
+          "Short label for a background job (optional). Ignored for foreground commands.",
+      },
+      notify: {
+        type: "string",
+        enum: ["always", "failure", "never"],
+        description:
+          "When a background job should wake the session. Defaults to the configured jobs.notifyDefault policy (usually always); ignored for foreground commands.",
       },
     },
     required: ["command"],

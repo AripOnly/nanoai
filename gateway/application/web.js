@@ -10,6 +10,7 @@ import { sessionRouter } from "../routes/session-route.js";
 import { settingsRouter } from "../routes/settings-route.js";
 import { modelsRouter } from "../routes/models-route.js";
 import { agentRouter } from "../routes/agent-route.js";
+import { jobRouter } from "../routes/job-route.js";
 import { errorMiddleware } from "../middlewares/error-middleware.js";
 import { authMiddleware } from "../middlewares/auth-middleware.js";
 import { auditMiddleware } from "../middlewares/audit-middleware.js";
@@ -30,10 +31,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * @param {object} [options]
  * @param {object} [options.runtime] createRuntime() result; agent requests
  *   reach turns through app.locals.runtime.
+ * @param {object} [options.jobs] durable job manager; reaches HTTP through
+ *   app.locals.jobs and tools through the runtime.
  */
-export async function createApp({ runtime } = {}) {
+export async function createApp({ runtime, jobs = null } = {}) {
   const app = express();
   app.locals.runtime = runtime;
+  app.locals.jobs = jobs;
 
   // First settings snapshot (and therefore the CORS list) must be ready before
   // requests arrive. Later changes are read from the live snapshot on each
@@ -69,7 +73,7 @@ export async function createApp({ runtime } = {}) {
   // serving, a 503 means up but degraded (settings/database). No auth.
   app.get("/health", async (req, res, next) => {
     try {
-      const health = await buildHealth();
+      const health = await buildHealth({ jobs });
       res.status(health.status === "ok" ? 200 : 503).send(health);
     } catch (error) {
       next(error);
@@ -85,6 +89,7 @@ export async function createApp({ runtime } = {}) {
   app.use("/api/v1/settings", settingsRouter);
   app.use("/api/v1/models", modelsRouter);
   app.use("/api/v1/agent", agentRouter);
+  app.use("/api/v1/jobs", jobRouter);
 
   // Web dashboard: served from the prebuilt client (npm run build:web) so that
   // `gateway start` activates API + web together with no dev server. Missing

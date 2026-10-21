@@ -30,7 +30,7 @@ describe("migrations", () => {
     const db = new Database(":memory:");
     try {
       const applied = migrate(db);
-      assert.deepEqual(applied, [1, 2, 3, 4]);
+      assert.deepEqual(applied, [1, 2, 3, 4, 5]);
       assert.equal(db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
       for (const column of [
         "id",
@@ -55,8 +55,32 @@ describe("migrations", () => {
         "provider",
         "model",
         "usage",
+        "kind",
+        "trigger_ref",
       ]) {
         assert.ok(columns(db, "turn").includes(column), `turn.${column} missing`);
+      }
+      for (const column of [
+        "id",
+        "session_id",
+        "command",
+        "status",
+        "runner_pid",
+        "child_pid",
+        "result_path",
+      ]) {
+        assert.ok(columns(db, "job").includes(column), `job.${column} missing`);
+      }
+      for (const column of [
+        "job_id",
+        "state",
+        "attempts",
+        "delivered_at",
+      ]) {
+        assert.ok(
+          columns(db, "job_notification").includes(column),
+          `job_notification.${column} missing`,
+        );
       }
       const indexes = db
         .prepare("PRAGMA index_list('session')")
@@ -81,12 +105,14 @@ describe("migrations", () => {
       db.exec("CREATE TABLE turn (id INTEGER PRIMARY KEY AUTOINCREMENT, parts TEXT NOT NULL, session_id TEXT)");
       db.exec("INSERT INTO session (id, name) VALUES ('s1', 'legacy')");
       const applied = migrate(db);
-      assert.deepEqual(applied, [1, 2, 3, 4]);
+      assert.deepEqual(applied, [1, 2, 3, 4, 5]);
       assert.equal(db.prepare("SELECT name FROM session WHERE id = 's1'").get().name, "legacy");
       assert.ok(columns(db, "session").includes("token"));
       assert.ok(columns(db, "session").includes("channel"));
       assert.ok(columns(db, "turn").includes("status"));
       assert.ok(columns(db, "turn").includes("client_message_id"));
+      assert.ok(columns(db, "turn").includes("kind"));
+      assert.ok(columns(db, "turn").includes("trigger_ref"));
       // Second run is a no-op.
       assert.deepEqual(migrate(db), []);
     } finally {
@@ -94,7 +120,7 @@ describe("migrations", () => {
     }
   });
 
-  it("backs up a v3 database before applying v4", async () => {
+  it("backs up a v3 database before applying v4 and v5", async () => {
     const dir = tempDir("nano-migrate-v4-");
     const dbPath = path.join(dir, "memories.db");
     const backups = path.join(dir, "backups");
@@ -149,14 +175,16 @@ describe("migrations", () => {
         copy.close();
       }
 
-      assert.deepEqual(migrate(db), [4]);
-      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
+      assert.deepEqual(migrate(db), [4, 5]);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 5);
       assert.equal(
         db.prepare("SELECT token FROM session WHERE id = 's1'").get().token,
         42,
       );
       assert.ok(columns(db, "session").includes("channel"));
       assert.ok(columns(db, "turn").includes("client_message_id"));
+      assert.ok(columns(db, "turn").includes("kind"));
+      assert.ok(columns(db, "job").includes("result_path"));
     } finally {
       db.close();
     }
@@ -221,13 +249,14 @@ describe("migrations", () => {
 
     const migrated = new Database(dbPath, { readonly: true });
     try {
-      assert.equal(migrated.prepare("PRAGMA user_version").get().user_version, 4);
+      assert.equal(migrated.prepare("PRAGMA user_version").get().user_version, 5);
       assert.equal(
         migrated.prepare("SELECT token FROM session WHERE id = 'boot-1'").get()
           .token,
         7,
       );
       assert.ok(columns(migrated, "session").includes("channel"));
+      assert.ok(columns(migrated, "turn").includes("kind"));
     } finally {
       migrated.close();
     }

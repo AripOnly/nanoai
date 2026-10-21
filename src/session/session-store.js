@@ -91,6 +91,8 @@ function replayResult(row) {
     provider: row.provider ?? null,
     model: row.model ?? null,
     client_message_id: row.client_message_id ?? null,
+    kind: row.kind ?? "chat",
+    trigger_ref: row.trigger_ref ?? null,
   };
 }
 
@@ -142,6 +144,24 @@ class SessionStore {
     );
     const provider = optionalString(options.provider, "provider", { max: 64 });
     const model = optionalString(options.model, "model", { max: 256 });
+    const kind = optionalString(options.turnKind ?? options.kind, "kind", {
+      max: 32,
+    }) ?? "chat";
+    const triggerRef = optionalString(
+      options.triggerRef ?? options.trigger_ref,
+      "trigger_ref",
+      { max: 128 },
+    );
+    const eventRole =
+      typeof options.eventRole === "string" && options.eventRole.trim() !== ""
+        ? options.eventRole.trim()
+        : event;
+    const eventContent =
+      options.eventContent &&
+      typeof options.eventContent === "object" &&
+      !Array.isArray(options.eventContent)
+        ? { text: input, ...options.eventContent }
+        : { text: input };
 
     if (clientMessageId !== null) {
       const existing = this.findTurnByClientMessageId(
@@ -153,8 +173,8 @@ class SessionStore {
 
     const turn = [
       {
-        role: event,
-        content: { text: input },
+        role: eventRole,
+        content: eventContent,
       },
     ];
 
@@ -163,8 +183,9 @@ class SessionStore {
       row = sql
         .prepare(
           `INSERT INTO turn
-             (parts, session_id, status, client_message_id, provider, model)
-           VALUES (?, ?, 'streaming', ?, ?, ?)`,
+             (parts, session_id, status, client_message_id, provider, model,
+              kind, trigger_ref)
+           VALUES (?, ?, 'streaming', ?, ?, ?, ?, ?)`,
         )
         .run(
           JSON.stringify(turn),
@@ -172,6 +193,8 @@ class SessionStore {
           clientMessageId,
           provider,
           model,
+          kind,
+          triggerRef,
         );
     } catch (error) {
       // Another process/request may have inserted the key between the lookup
@@ -205,6 +228,8 @@ class SessionStore {
       provider,
       model,
       client_message_id: clientMessageId,
+      kind,
+      trigger_ref: triggerRef,
     };
   }
 
@@ -222,6 +247,7 @@ class SessionStore {
     // but never persisted and never sent to LLM.
     if (event.role === EVENT.TOKEN) return;
     if (event.role === EVENT.TOOL_UPDATE) return;
+    if (event.role === EVENT.JOB_UPDATE) return;
     if (event.role === EVENT.TURN_START) return;
 
     if (event.role === EVENT.ASSISTANT) {
@@ -477,7 +503,8 @@ class SessionStore {
     const key = requiredString(clientMessageId, "client_message_id");
     const row = sql
       .prepare(
-        `SELECT id, parts, status, usage, provider, model, client_message_id
+        `SELECT id, parts, status, usage, provider, model, client_message_id,
+                kind, trigger_ref
            FROM turn
           WHERE session_id = ? AND client_message_id = ?`,
       )
@@ -498,7 +525,7 @@ class SessionStore {
     const row = sql
       .prepare(
         `SELECT id, session_id, parts, status, usage, provider, model,
-                client_message_id, created_at
+                client_message_id, kind, trigger_ref, created_at
            FROM turn WHERE id = ?`,
       )
       .get(id);
@@ -527,13 +554,15 @@ class SessionStore {
       cursor === null
         ? sql
             .prepare(
-              `SELECT id, status, usage, provider, model, client_message_id, created_at
+              `SELECT id, status, usage, provider, model, client_message_id,
+                      kind, trigger_ref, created_at
                  FROM turn WHERE session_id = ? ORDER BY id DESC LIMIT ?`,
             )
             .all(session_id, limit)
         : sql
             .prepare(
-              `SELECT id, status, usage, provider, model, client_message_id, created_at
+              `SELECT id, status, usage, provider, model, client_message_id,
+                      kind, trigger_ref, created_at
                  FROM turn WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?`,
             )
             .all(session_id, cursor, limit);

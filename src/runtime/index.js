@@ -17,6 +17,7 @@ import { getSnapshot } from "#src/config/index.js";
 import { runTurn } from "./turn.js";
 
 export { runTurn } from "./turn.js";
+export { createJobNotice } from "./job-notice.js";
 export {
   compactConversation,
   prunedInputAfterCompaction,
@@ -79,6 +80,7 @@ export function endpointFor(provider, config = {}, env = process.env) {
  * @param {object} [options.providers]  provider registry view
  * @param {Function} [options.catalog]  () => catalog snapshot
  * @param {Function} [options.config]   () => settings snapshot ({ value })
+ * @param {object} [options.jobs]      durable job manager injected into tools
  * @param {object} [options.env]
  * @param {object} [options.logger]
  */
@@ -87,6 +89,7 @@ export function createRuntime({
   providers = getProviderRegistry(),
   catalog = getCatalogSnapshot,
   config = getSnapshot,
+  jobs = null,
   env = process.env,
   logger = console,
 } = {}) {
@@ -119,6 +122,7 @@ export function createRuntime({
           getConfig: () => config()?.value ?? {},
           getCatalog: () => catalog(),
           resolveModel: resolveTurnModel,
+          jobs,
           logger,
         },
       });

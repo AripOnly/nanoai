@@ -10,6 +10,8 @@ export const EVENT = {
   TOOL_CALL: "tool_call",
   TOOL_UPDATE: "tool_update",
   TOOL_RESULT: "tool_result",
+  JOB_UPDATE: "job_update",
+  JOB_NOTICE: "job_notice",
   COMPACTION: "compaction",
   TOKEN: "token",
   ERROR: "error",

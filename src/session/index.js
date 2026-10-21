@@ -115,9 +115,10 @@ export function recoverInterruptedTurn(session_id) {
   return sessionStore.recoverInterruptedTurns(session_id);
 }
 
-/** Reserve the session and durably insert the user prompt. */
+/** Reserve the session and durably insert the prompt (user or job notice). */
 export function beginTurn(session_id, prompt, options = {}) {
-  return sessionStore.start(session_id, EVENT.USER, prompt, options);
+  const role = options.eventRole ?? EVENT.USER;
+  return sessionStore.start(session_id, role, prompt, options);
 }
 
 /** Persist (or buffer) one event produced during the active turn. */

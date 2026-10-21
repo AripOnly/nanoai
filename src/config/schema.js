@@ -142,6 +142,71 @@ function validateGateway(value, key) {
   return { host, port };
 }
 
+export const JOBS_DEFAULTS = Object.freeze({
+  enabled: true,
+  maxRunning: 4,
+  maxPerSession: 2,
+  defaultTimeoutMs: 30 * 60 * 1000,
+  maxTimeoutMs: 24 * 60 * 60 * 1000,
+  pollIntervalMs: 2000,
+  maxLogBytes: 50 * 1024 * 1024,
+  maxTotalLogBytes: 100 * 1024 * 1024,
+  retentionDays: 7,
+  autoContinue: true,
+  notifyDefault: "always",
+});
+
+const JOB_NOTIFY_DEFAULTS = Object.freeze(["always", "failure", "never"]);
+
+function validateJobs(value, key) {
+  if (!isPlainObject(value)) {
+    fail(key, "must be an object");
+  }
+  const unknown = Object.keys(value).filter(
+    (item) => !Object.hasOwn(JOBS_DEFAULTS, item),
+  );
+  if (unknown.length > 0) {
+    fail(key, `contains an unknown key "${unknown[0]}"`);
+  }
+  const result = { ...JOBS_DEFAULTS, ...value };
+  const integer = (name, min, max) => {
+    const number = result[name];
+    if (!Number.isInteger(number) || number < min || number > max) {
+      fail(
+        `${key}.${name}`,
+        `must be an integer between ${min} and ${max}`,
+      );
+    }
+  };
+  if (typeof result.enabled !== "boolean") {
+    fail(`${key}.enabled`, "must be a boolean");
+  }
+  integer("maxRunning", 1, 64);
+  integer("maxPerSession", 1, 64);
+  integer("defaultTimeoutMs", 1_000, 24 * 60 * 60 * 1000);
+  integer("maxTimeoutMs", 1_000, 24 * 60 * 60 * 1000);
+  if (result.defaultTimeoutMs > result.maxTimeoutMs) {
+    fail(
+      `${key}.defaultTimeoutMs`,
+      "must be less than or equal to maxTimeoutMs",
+    );
+  }
+  integer("pollIntervalMs", 250, 60_000);
+  integer("maxLogBytes", 1024, 1024 * 1024 * 1024);
+  integer("maxTotalLogBytes", 1024, 10 * 1024 * 1024 * 1024);
+  integer("retentionDays", 0, 3650);
+  if (typeof result.autoContinue !== "boolean") {
+    fail(`${key}.autoContinue`, "must be a boolean");
+  }
+  if (!JOB_NOTIFY_DEFAULTS.includes(result.notifyDefault)) {
+    fail(
+      `${key}.notifyDefault`,
+      `must be one of: ${JOB_NOTIFY_DEFAULTS.join(", ")}`,
+    );
+  }
+  return result;
+}
+
 function validateModel(value, key) {
   if (typeof value !== "string" || value.trim() === "") {
     fail(key, "must be a non-empty string");
@@ -205,6 +270,11 @@ export const SETTINGS_SCHEMA = Object.freeze({
     secret: false,
     validate: validateGateway,
   },
+  jobs: {
+    hot: true,
+    secret: false,
+    validate: validateJobs,
+  },
 });
 
 export const SETTINGS_KEYS = Object.freeze(Object.keys(SETTINGS_SCHEMA));
@@ -226,6 +296,7 @@ export const SETTINGS_DEFAULTS = deepFreeze({
     host: null,
     port: null,
   },
+  jobs: JOBS_DEFAULTS,
 });
 
 function deepClone(value) {
@@ -266,6 +337,12 @@ function applyDefaults(raw) {
     candidate.gateway = {
       ...SETTINGS_DEFAULTS.gateway,
       ...raw.gateway,
+    };
+  }
+  if (isPlainObject(raw.jobs)) {
+    candidate.jobs = {
+      ...SETTINGS_DEFAULTS.jobs,
+      ...raw.jobs,
     };
   }
   return candidate;

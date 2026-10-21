@@ -9,6 +9,10 @@ import { acceptable, name as shellName } from "./select.js";
 import { render } from "./prompt.js";
 import { analyzeCommand } from "./parse.js";
 import { runShell } from "./run.js";
+import {
+  assertBackgroundAllowed,
+  normalizeNotify,
+} from "#src/jobs/policy.js";
 import { fail, limits, assertInsideWorkspace, resolveWorkspaceRoot } from "#src/tools/shared/index.js";
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
@@ -77,6 +81,15 @@ export async function shell(params, context = {}) {
       `Parameter 'timeout' must be a non-negative number of milliseconds. Got: ${params.timeout}.`,
     );
   }
+  if (
+    params?.background !== undefined &&
+    typeof params.background !== "boolean"
+  ) {
+    return fail("Parameter 'background' must be a boolean.");
+  }
+  if (params?.name !== undefined && typeof params.name !== "string") {
+    return fail("Parameter 'name' must be a string.");
+  }
 
   let cwd;
   try {
@@ -103,6 +116,63 @@ export async function shell(params, context = {}) {
         "Do not retry this command. Explain to the user what was blocked " +
         "and why, then propose a safer alternative.",
     };
+  }
+
+  if (params?.background === true) {
+    try {
+      assertBackgroundAllowed(context.policy);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+    if (!context.jobs || typeof context.jobs.create !== "function") {
+      return fail("Background jobs are not available in this runtime.");
+    }
+    if (!context.sessionID && !context.session_id) {
+      return fail("Background jobs require an active session.");
+    }
+    let notify;
+    try {
+      notify =
+        params?.notify === undefined || params?.notify === null
+          ? undefined
+          : normalizeNotify(params.notify);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+    try {
+      const job = await context.jobs.create({
+        sessionId: context.sessionID ?? context.session_id,
+        command,
+        cwd,
+        shell: shellPath,
+        name: params?.name,
+        notify,
+        timeoutMs: params?.timeout,
+      });
+      return {
+        success: true,
+        output: `Background job ${job.jobId} started (status: ${job.status}). Use the process tool to poll it; do not sleep in this turn.`,
+        jobId: job.jobId,
+        status: job.status,
+        pid: job.runnerPid,
+        logPath: job.logPath,
+        startedAt: job.startedAt,
+        pollAfterMs: job.pollAfterMs,
+        background: true,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...(error?.code ? { code: error.code } : {}),
+      };
+    }
+  }
+
+  if (params?.notify !== undefined || params?.name !== undefined) {
+    return fail(
+      "Parameters 'name' and 'notify' only apply when background is true.",
+    );
   }
 
   const callId = context.callId ?? context.call_id ?? undefined;

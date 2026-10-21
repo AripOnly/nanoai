@@ -8,7 +8,7 @@
 // that applied the same changes ad hoc. The applied version is stored in
 // PRAGMA user_version; only pending migrations run, inside one transaction.
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const hasColumn = (db, table, column) =>
   db
@@ -105,6 +105,85 @@ const MIGRATIONS = [
           ON turn(session_id, client_message_id)
           WHERE client_message_id IS NOT NULL;
       `);
+    },
+  },
+  {
+    version: 5,
+    name: "durable background jobs and job notifications",
+    apply(db) {
+      const turnColumns = [
+        ["kind", "TEXT NOT NULL DEFAULT 'chat'"],
+        ["trigger_ref", "TEXT"],
+      ];
+      for (const [column, type] of turnColumns) {
+        if (!hasColumn(db, "turn", column)) {
+          db.exec(`ALTER TABLE turn ADD COLUMN ${column} ${type}`);
+        }
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS job (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+          name TEXT,
+          command TEXT NOT NULL,
+          cwd TEXT NOT NULL,
+          shell TEXT NOT NULL,
+          notify TEXT NOT NULL DEFAULT 'always',
+          timeout_ms INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          runner_pid INTEGER,
+          child_pid INTEGER,
+          output_path TEXT NOT NULL,
+          result_path TEXT NOT NULL,
+          exit_code INTEGER,
+          signal TEXT,
+          timed_out INTEGER NOT NULL DEFAULT 0,
+          truncated INTEGER NOT NULL DEFAULT 0,
+          output_bytes INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          created_at DATETIME DEFAULT (datetime('now','localtime')),
+          started_at DATETIME,
+          finished_at DATETIME,
+          updated_at DATETIME DEFAULT (datetime('now','localtime'))
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_job_session ON job(session_id, created_at DESC);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_job_status ON job(status, created_at);`,
+      );
+
+      // One notification row per job is the first dedupe guard; the unique
+      // turn(session_id, client_message_id) index is the second.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS job_notification (
+          job_id TEXT PRIMARY KEY REFERENCES job(id) ON DELETE CASCADE,
+          state TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at DATETIME DEFAULT (datetime('now','localtime')),
+          updated_at DATETIME DEFAULT (datetime('now','localtime')),
+          delivered_at DATETIME
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_job_notification_state
+           ON job_notification(state, updated_at);`,
+      );
+      // Very old databases can predate turn.created_at (v1 used IF NOT EXISTS
+      // for the whole table, so an ad-hoc legacy table survived). The index
+      // needs the column; backfill-compatible ALTER cannot use a non-constant
+      // default, so legacy rows simply keep NULL and are excluded by the
+      // one-hour job-turn query.
+      if (!hasColumn(db, "turn", "created_at")) {
+        db.exec("ALTER TABLE turn ADD COLUMN created_at DATETIME");
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_turn_kind_session
+           ON turn(session_id, kind, created_at);`,
+      );
     },
   },
 ];

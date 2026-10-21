@@ -39,10 +39,11 @@ function safeError(error) {
   return "settings could not be loaded";
 }
 
-export async function buildHealth() {
+export async function buildHealth({ jobs = null } = {}) {
   const checks = { settings: "ok", models: "ok", database: "ok" };
   let snapshot = null;
   let modelsSnapshot = null;
+  let jobStats = null;
 
   try {
     await initSettings();
@@ -80,6 +81,15 @@ export async function buildHealth() {
     checks.database = error instanceof Error ? error.message : String(error);
   }
 
+  if (jobs && typeof jobs.stats === "function") {
+    try {
+      jobStats = jobs.stats();
+      checks.jobs = "ok";
+    } catch (error) {
+      checks.jobs = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   const degraded = Object.values(checks).some((status) => status !== "ok");
   return {
     status: degraded ? "degraded" : "ok",
@@ -92,5 +102,6 @@ export async function buildHealth() {
     restart_required: snapshot?.restartRequired ?? false,
     models_revision: modelsSnapshot?.revision ?? null,
     models_error: modelsSnapshot?.lastError?.message ?? null,
+    jobs: jobStats,
   };
 }

@@ -50,6 +50,19 @@ ${options.summary}
 `;
   }
 
+  let jobNotice = "";
+  if (typeof options?.jobNotice === "string" && options.jobNotice.trim() !== "") {
+    jobNotice = `
+# Background job update
+
+A background job finished and woke this turn. The UI-only notice is not part of
+the conversation history. Inspect it, then continue the user's work if needed.
+Use the process tool for more detail; do not repeat the whole log.
+
+${options.jobNotice.trim()}
+`;
+  }
+
   const ins = `
 Username: ${username}
 Your name: Nano
@@ -58,7 +71,8 @@ ${insDefault}
 
 ${getWorkEnv()}
 
-${options?.summary ? summary : ""}
+${summary}
+${jobNotice}
 `;
 
   return ins;

@@ -118,6 +118,7 @@ function* replayTurn(existing, sessionId) {
       event?.role === EVENT.USER ||
       event?.role === EVENT.TOKEN ||
       event?.role === EVENT.TOOL_UPDATE ||
+      event?.role === EVENT.JOB_UPDATE ||
       event?.role === EVENT.TURN_START
     ) {
       continue;
@@ -143,6 +144,8 @@ function visibleInput(conversation) {
       event?.role !== EVENT.ERROR &&
       event?.role !== EVENT.COMPACTION &&
       event?.role !== EVENT.TOOL_UPDATE &&
+      event?.role !== EVENT.JOB_UPDATE &&
+      event?.role !== EVENT.JOB_NOTICE &&
       event?.role !== EVENT.TURN_START,
   );
 }
@@ -183,6 +186,13 @@ function mergePolicy(definitionPolicy, callerPolicy) {
       policy.maxToolConcurrency,
       4,
     ),
+    // Nested capability: background jobs can only ever be narrowed, never
+    // granted by a caller's policy.
+    shell: {
+      background:
+        definitionPolicy.shell?.background === true &&
+        policy.shell?.background !== false,
+    },
   };
 }
 
@@ -209,6 +219,9 @@ export async function* runTurn({
   signal,
   allowedTools,
   policy,
+  turnKind,
+  triggerRef,
+  jobNotice,
   deps,
 } = {}) {
   if (!deps || typeof deps !== "object") {
@@ -235,6 +248,11 @@ export async function* runTurn({
   let targetChannel = channel ?? null;
   let targetExternalRef = externalRef ?? external_ref ?? null;
   const usage = createUsage();
+  const kind = turnKind ?? "chat";
+  const notice =
+    typeof jobNotice === "string" && jobNotice.trim() !== ""
+      ? jobNotice.trim()
+      : null;
 
   // Accept the HTTP snake_case names and the internal camelCase names. The
   // old `name`/`session_id` call shape remains valid for existing callers.
@@ -247,6 +265,12 @@ export async function* runTurn({
     }
     if (typeof name !== "string" || name.trim() === "") {
       throw new Error("agent name must be a non-empty string.");
+    }
+    if (kind !== "chat" && kind !== "job") {
+      throw new Error('turnKind must be "chat" or "job".');
+    }
+    if (kind === "job" && notice === null) {
+      throw new Error("jobNotice is required for a job turn.");
     }
     if (idempotencyKey !== null) {
       if (
@@ -356,6 +380,13 @@ export async function* runTurn({
       clientMessageId: idempotencyKey,
       provider: null,
       model: before.model ?? null,
+      turnKind: kind,
+      triggerRef: triggerRef ?? null,
+      eventRole: kind === "job" ? EVENT.JOB_NOTICE : EVENT.USER,
+      eventContent:
+        kind === "job"
+          ? { text: prompt, job_id: triggerRef ?? null }
+          : undefined,
     });
     if (started?.replayed) {
       yield* replayTurn(started, session_id);
@@ -363,7 +394,9 @@ export async function* runTurn({
     }
     began = true;
     turnId = Number.isInteger(started?.id) ? started.id : null;
-    session.autoNameSession(session_id, prompt);
+    if (kind !== "job") {
+      session.autoNameSession(session_id, prompt);
+    }
 
     yield turnStartEvent({
       turnId,
@@ -479,11 +512,17 @@ export async function* runTurn({
       }
     }
 
-    conversation.push({ role: EVENT.USER, content: { text: prompt } });
+    // A job notice lives in the system instruction and the persisted
+    // JOB_NOTICE event, never in the provider's conversation input. The turn
+    // itself still exists so the UI can show what woke the agent.
+    if (kind !== "job") {
+      conversation.push({ role: EVENT.USER, content: { text: prompt } });
+    }
 
     const instruction = await createInstruction(definition.instruction, {
       summary,
       username: config.username,
+      jobNotice: kind === "job" ? notice : null,
     });
 
     // Prune with the compaction marker still present, then strip UI-only
@@ -564,6 +603,7 @@ export async function* runTurn({
       allowedTools: effectiveAllowedTools,
       signal,
       session_id,
+      jobs: deps.jobs ?? null,
       sentAttachments: collectAttachmentIds(input),
       executeTool,
       requestCompaction,
