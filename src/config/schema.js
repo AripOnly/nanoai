@@ -207,6 +207,46 @@ function validateJobs(value, key) {
   return result;
 }
 
+export const SKILLS_DEFAULTS = Object.freeze({
+  enabled: true,
+  autoLoadTrusted: true,
+  allowUntrustedAutoLoad: false,
+  maxCatalogEntries: 200,
+  maxSkillBytes: 131072,
+  maxSupportingFileBytes: 16384,
+});
+
+function validateSkills(value, key) {
+  if (!isPlainObject(value)) {
+    fail(key, "must be an object");
+  }
+  const unknown = Object.keys(value).filter(
+    (item) => !Object.hasOwn(SKILLS_DEFAULTS, item),
+  );
+  if (unknown.length > 0) {
+    fail(key, `contains an unknown key "${unknown[0]}"`);
+  }
+  const result = { ...SKILLS_DEFAULTS, ...value };
+  for (const name of ["enabled", "autoLoadTrusted", "allowUntrustedAutoLoad"]) {
+    if (typeof result[name] !== "boolean") {
+      fail(`${key}.${name}`, "must be a boolean");
+    }
+  }
+  const integer = (name, min, max) => {
+    const number = result[name];
+    if (!Number.isInteger(number) || number < min || number > max) {
+      fail(
+        `${key}.${name}`,
+        `must be an integer between ${min} and ${max}`,
+      );
+    }
+  };
+  integer("maxCatalogEntries", 1, 1000);
+  integer("maxSkillBytes", 1024, 1024 * 1024);
+  integer("maxSupportingFileBytes", 1024, 1024 * 1024);
+  return result;
+}
+
 function validateModel(value, key) {
   if (typeof value !== "string" || value.trim() === "") {
     fail(key, "must be a non-empty string");
@@ -275,6 +315,11 @@ export const SETTINGS_SCHEMA = Object.freeze({
     secret: false,
     validate: validateJobs,
   },
+  skills: {
+    hot: true,
+    secret: false,
+    validate: validateSkills,
+  },
 });
 
 export const SETTINGS_KEYS = Object.freeze(Object.keys(SETTINGS_SCHEMA));
@@ -297,6 +342,7 @@ export const SETTINGS_DEFAULTS = deepFreeze({
     port: null,
   },
   jobs: JOBS_DEFAULTS,
+  skills: SKILLS_DEFAULTS,
 });
 
 function deepClone(value) {
@@ -343,6 +389,12 @@ function applyDefaults(raw) {
     candidate.jobs = {
       ...SETTINGS_DEFAULTS.jobs,
       ...raw.jobs,
+    };
+  }
+  if (isPlainObject(raw.skills)) {
+    candidate.skills = {
+      ...SETTINGS_DEFAULTS.skills,
+      ...raw.skills,
     };
   }
   return candidate;

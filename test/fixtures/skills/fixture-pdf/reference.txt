@@ -1,0 +1,6 @@
+Report layout reference:
+
+1. Title and date.
+2. Short summary.
+3. Facts with sources.
+4. Next actions.

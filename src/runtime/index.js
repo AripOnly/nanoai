@@ -81,6 +81,7 @@ export function endpointFor(provider, config = {}, env = process.env) {
  * @param {Function} [options.catalog]  () => catalog snapshot
  * @param {Function} [options.config]   () => settings snapshot ({ value })
  * @param {object} [options.jobs]      durable job manager injected into tools
+ * @param {object} [options.skills]    turn-scoped skill registry view factory
  * @param {object} [options.env]
  * @param {object} [options.logger]
  */
@@ -90,6 +91,7 @@ export function createRuntime({
   catalog = getCatalogSnapshot,
   config = getSnapshot,
   jobs = null,
+  skills = null,
   env = process.env,
   logger = console,
 } = {}) {
@@ -123,6 +125,7 @@ export function createRuntime({
           getCatalog: () => catalog(),
           resolveModel: resolveTurnModel,
           jobs,
+          skills,
           logger,
         },
       });

@@ -15,7 +15,7 @@ import {
   listPrimaryAgentNames,
 } from "./registry.js";
 
-export { toolNamesFor } from "./registry.js";
+export { skillNamesFor, toolNamesFor } from "./registry.js";
 
 /** Public agent definition + policy, or undefined for unknown/subagents. */
 export function getAgent(name) {

@@ -25,6 +25,8 @@ import {
 import { getProviderRegistry } from "../src/llm/registry.js";
 import { createRuntime, createJobNotice } from "../src/runtime/index.js";
 import { createJobManager } from "../src/jobs/index.js";
+import { createSkillRegistry } from "../src/skills/index.js";
+import { toolRegistry } from "../src/tools/registry.js";
 
 // Boot order is a safety property: settings and the model catalog must be
 // readable, the gateway token must exist, and the runtime must be built before
@@ -44,6 +46,22 @@ if (created) {
   );
 }
 
+// Skill metadata is validated before any request or job turn can use it. A
+// broken skill file must not prevent the gateway from booting; the registry
+// keeps the last-known-good snapshot and reports the error through /health.
+const knownSkillTools = toolRegistry
+  .names()
+  .filter((name) => name !== "loadSkill" && name !== "searchSkills");
+const skills = createSkillRegistry({
+  config: getSnapshot,
+  knownTools: knownSkillTools,
+});
+try {
+  await skills.init();
+} catch (error) {
+  console.error("[nanoai] Skill registry initialization failed:", error);
+}
+
 const jobs = createJobManager({ config: getSnapshot });
 
 const runtime = createRuntime({
@@ -51,6 +69,7 @@ const runtime = createRuntime({
   config: getSnapshot,
   catalog: getCatalogSnapshot,
   jobs,
+  skills,
 });
 
 const jobNotice = createJobNotice({
@@ -74,7 +93,7 @@ try {
   console.error("[nanoai] Job reconciliation failed:", error);
 }
 
-const app = await createApp({ runtime, jobs });
+const app = await createApp({ runtime, jobs, skills });
 
 const { port: PORT, host: HOST } = resolveListen({
   gateway: getSnapshot().value.gateway,
@@ -85,10 +104,12 @@ const { port: PORT, host: HOST } = resolveListen({
 // as external edits. Both watchers are stopped on every failure and shutdown.
 startSettingsWatcher();
 startModelCatalogWatcher();
+skills.startWatcher();
 
 function stopWatchers() {
   stopSettingsWatcher();
   stopModelCatalogWatcher();
+  skills.stopWatcher();
 }
 
 let booted;

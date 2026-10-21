@@ -16,6 +16,12 @@ import { shell, shellTool } from "./shell/shell.js";
 import { process, processTool } from "./process/process.js";
 import { glob, globTool } from "./glob.js";
 import { grep, grepTool } from "./grep.js";
+import {
+  loadSkill,
+  loadSkillTool,
+  searchSkills,
+  searchSkillsTool,
+} from "./skill.js";
 import { assertToolContract } from "./contract.js";
 
 const READ_FS = Object.freeze({ fs: "read", net: false, shell: false });
@@ -89,6 +95,18 @@ export const TOOL_DEFINITIONS = Object.freeze([
     schema: webFetchTool,
     capabilities: READ_NET,
     execute: webFetch,
+  }),
+  Object.freeze({
+    name: "loadSkill",
+    schema: loadSkillTool,
+    capabilities: READ_FS,
+    execute: loadSkill,
+  }),
+  Object.freeze({
+    name: "searchSkills",
+    schema: searchSkillsTool,
+    capabilities: READ_FS,
+    execute: searchSkills,
   }),
 ]);
 

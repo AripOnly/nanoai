@@ -53,14 +53,26 @@ const nano = Object.freeze({
     "grep",
     "webSearch",
     "webFetch",
+    "loadSkill",
+    "searchSkills",
   ]),
+  skills: Object.freeze(["*"]),
   policy: FULL_POLICY,
 });
 
 const plan = Object.freeze({
   mode: "primary",
   instruction: "plan",
-  tools: Object.freeze(["read", "glob", "grep", "webSearch", "webFetch"]),
+  tools: Object.freeze([
+    "read",
+    "glob",
+    "grep",
+    "webSearch",
+    "webFetch",
+    "loadSkill",
+    "searchSkills",
+  ]),
+  skills: Object.freeze(["*"]),
   policy: READ_ONLY_POLICY,
 });
 
@@ -68,6 +80,7 @@ const compaction = Object.freeze({
   mode: "subagent",
   instruction: "compaction",
   tools: Object.freeze([]),
+  skills: Object.freeze([]),
   policy: COMPACTION_POLICY,
 });
 
@@ -88,6 +101,14 @@ export function toolNamesFor(definition) {
   return definition.tools
     .map(toolName)
     .filter((name) => typeof name === "string" && name.length > 0);
+}
+
+/** Skill names allowed for an agent; `["*"]` means every installed skill. */
+export function skillNamesFor(definition) {
+  if (!definition || !Array.isArray(definition.skills)) return [];
+  return definition.skills.filter(
+    (name) => typeof name === "string" && name.length > 0,
+  );
 }
 
 /** Any agent definition, including internal subagents. */

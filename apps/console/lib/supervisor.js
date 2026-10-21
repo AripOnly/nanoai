@@ -44,7 +44,7 @@ export function parseArgs(argv = []) {
   if (lower === "gateway" && ["start", "stop", "restart", "status", "log"].includes((rest[0] ?? "").toLowerCase())) {
     return { name: `gateway:${rest[0].toLowerCase()}`, args: rest.slice(1) };
   }
-  if (["cli", "web", "doctor"].includes(lower)) {
+  if (["cli", "web", "doctor", "skills"].includes(lower)) {
     return { name: lower, args: rest };
   }
   return { name: "unknown", args: words, raw: words.join(" ") };
@@ -64,6 +64,12 @@ export function helpText() {
     "  nanoai cli               enter chat mode (needs the gateway running)",
     "  nanoai web               print the dashboard URL",
     "  nanoai doctor            check installation health (node, db, settings, search)",
+    "  nanoai skills add <src>  install a skill explicitly via skills.sh",
+    "  nanoai skills list       list installed skills",
+    "  nanoai skills inspect <name>  show a skill and its provenance",
+    "  nanoai skills update <name>   reinstall from recorded provenance",
+    "  nanoai skills remove <name>   remove a user-installed skill",
+    "  nanoai skills reload     rebuild the registry / reload the gateway",
     "  nanoai -h, --help        show this help",
   ].join("\n");
 }

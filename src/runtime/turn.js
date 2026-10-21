@@ -519,10 +519,46 @@ export async function* runTurn({
       conversation.push({ role: EVENT.USER, content: { text: prompt } });
     }
 
+    const definitionTools = toolNamesFor(definition);
+    const effectivePolicy = mergePolicy(definition.policy, policy);
+    const effectiveAllowedTools = Array.isArray(allowedTools)
+      ? definitionTools.filter((tool) => allowedTools.includes(tool))
+      : definitionTools;
+
+    // Skill tools are a runtime capability, not an agent-level guarantee.
+    // Only advertise them when this turn actually has a usable skill view.
+    const nonSkillTools = effectiveAllowedTools.filter(
+      (tool) => tool !== "loadSkill" && tool !== "searchSkills",
+    );
+    let skillView = null;
+    if (deps.skills?.turnView) {
+      try {
+        const view = deps.skills.turnView({
+          agentSkills: definition.skills ?? [],
+          allowedTools: nonSkillTools,
+          settings: config.skills ?? null,
+        });
+        if (view?.enabled) skillView = view;
+      } catch (error) {
+        logger.warn?.(
+          `[runtime] skills are unavailable for this turn: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    const turnAllowedTools = skillView ? effectiveAllowedTools : nonSkillTools;
+    const autoSkills = skillView
+      ? skillView.autoLoad(prompt)
+      : { skill: null, content: "", hints: [] };
+
     const instruction = await createInstruction(definition.instruction, {
       summary,
       username: config.username,
       jobNotice: kind === "job" ? notice : null,
+      skillCatalog: skillView?.catalog ?? "",
+      skillAutoLoad: autoSkills.content || null,
+      skillHints: autoSkills.hints,
     });
 
     // Prune with the compaction marker still present, then strip UI-only
@@ -531,12 +567,6 @@ export async function* runTurn({
     const input = visibleInput(
       pruneConversation(conversation, keepTurn),
     );
-
-    const definitionTools = toolNamesFor(definition);
-    const effectivePolicy = mergePolicy(definition.policy, policy);
-    const effectiveAllowedTools = Array.isArray(allowedTools)
-      ? definitionTools.filter((tool) => allowedTools.includes(tool))
-      : definitionTools;
 
     const requestCompaction = async ({ conversation: inputConversation, token: stepToken }) => {
       if (
@@ -598,14 +628,15 @@ export async function* runTurn({
       model: modelHandle.model,
       instruction,
       input,
-      tools: tools.schemasFor(effectiveAllowedTools),
+      tools: tools.schemasFor(turnAllowedTools),
       policy: effectivePolicy,
-      allowedTools: effectiveAllowedTools,
+      allowedTools: turnAllowedTools,
       signal,
       session_id,
       jobs: deps.jobs ?? null,
       sentAttachments: collectAttachmentIds(input),
-      executeTool,
+      executeTool: (toolCall, context = {}) =>
+        executeTool(toolCall, { ...context, skills: skillView }),
       requestCompaction,
     };
 

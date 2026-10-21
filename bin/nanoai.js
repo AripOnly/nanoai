@@ -89,6 +89,20 @@ async function main() {
     runChat();
     return;
   }
+  if (name === "skills") {
+    // Skills touch the engine, so keep bin/ on its allowlist: spawn the script
+    // entry point instead of importing src/skills from here.
+    const skillsScript = path.join(repoRoot, "scripts", "skills.mjs");
+    const result = spawnSync(process.execPath, [skillsScript, ...args], {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      windowsHide: true,
+    });
+    if (result.error) {
+      fail(`nanoai: failed to run skills (${result.error.message})`);
+    }
+    process.exit(result.status ?? 1);
+  }
   if (name.startsWith("gateway:")) {
     const action = name.slice("gateway:".length);
     if (action === "start") {

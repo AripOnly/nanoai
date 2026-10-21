@@ -12,6 +12,7 @@ import {
   getSnapshot,
   initSettings,
   settings,
+  SKILLS_DEFAULTS,
 } from "../../src/config/index.js";
 import {
   isKnownProvider,
@@ -38,6 +39,7 @@ const ALLOWED_KEYS = [
   "provider_endpoints",
   "gateway_token",
   "gateway",
+  "skills",
 ];
 
 const PUBLIC_KEYS = [
@@ -50,6 +52,7 @@ const PUBLIC_KEYS = [
   "compaction",
   "cors_origins",
   "gateway",
+  "skills",
 ];
 
 function maskSecret(value) {
@@ -282,6 +285,48 @@ function validateGateway(value) {
   return result;
 }
 
+function validateSkills(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ResponseError(400, "skills must be an object");
+  }
+
+  const unknown = Object.keys(value).filter(
+    (key) => !Object.hasOwn(SKILLS_DEFAULTS, key),
+  );
+  if (unknown.length > 0) {
+    throw new ResponseError(
+      400,
+      `skills contains an unknown key "${unknown[0]}"`,
+    );
+  }
+
+  const result = {};
+  for (const key of ["enabled", "autoLoadTrusted", "allowUntrustedAutoLoad"]) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== "boolean") {
+        throw new ResponseError(400, `skills.${key} must be a boolean`);
+      }
+      result[key] = value[key];
+    }
+  }
+
+  const integer = (key, min, max) => {
+    if (value[key] === undefined) return;
+    if (!Number.isInteger(value[key]) || value[key] < min || value[key] > max) {
+      throw new ResponseError(
+        400,
+        `skills.${key} must be an integer between ${min} and ${max}`,
+      );
+    }
+    result[key] = value[key];
+  };
+  integer("maxCatalogEntries", 1, 1000);
+  integer("maxSkillBytes", 1024, 1024 * 1024);
+  integer("maxSupportingFileBytes", 1024, 1024 * 1024);
+
+  return result;
+}
+
 function validateUpdate(body) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new ResponseError(400, "request body must be an object");
@@ -372,6 +417,10 @@ function validateUpdate(body) {
     validated.gateway = validateGateway(body.gateway);
   }
 
+  if (body.skills !== undefined) {
+    validated.skills = validateSkills(body.skills);
+  }
+
   return validated;
 }
 
@@ -410,6 +459,10 @@ function mergePatch(current, validated) {
 
   if (validated.gateway !== undefined) {
     patch.gateway = { ...current.gateway, ...validated.gateway };
+  }
+
+  if (validated.skills !== undefined) {
+    patch.skills = { ...current.skills, ...validated.skills };
   }
 
   return patch;

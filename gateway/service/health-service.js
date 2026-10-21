@@ -39,11 +39,12 @@ function safeError(error) {
   return "settings could not be loaded";
 }
 
-export async function buildHealth({ jobs = null } = {}) {
+export async function buildHealth({ jobs = null, skills = null } = {}) {
   const checks = { settings: "ok", models: "ok", database: "ok" };
   let snapshot = null;
   let modelsSnapshot = null;
   let jobStats = null;
+  let skillHealth = null;
 
   try {
     await initSettings();
@@ -90,6 +91,20 @@ export async function buildHealth({ jobs = null } = {}) {
     }
   }
 
+  if (skills && typeof skills.health === "function") {
+    try {
+      skillHealth = skills.health();
+      checks.skills = skillHealth.lastError
+        ? String(skillHealth.lastError)
+        : "ok";
+    } catch (error) {
+      checks.skills = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const allowUntrustedAutoLoad =
+    snapshot?.value?.skills?.allowUntrustedAutoLoad === true;
+
   const degraded = Object.values(checks).some((status) => status !== "ok");
   return {
     status: degraded ? "degraded" : "ok",
@@ -102,6 +117,13 @@ export async function buildHealth({ jobs = null } = {}) {
     restart_required: snapshot?.restartRequired ?? false,
     models_revision: modelsSnapshot?.revision ?? null,
     models_error: modelsSnapshot?.lastError?.message ?? null,
+    skills_revision: skillHealth?.revision ?? null,
+    skills_error: skillHealth?.lastError ?? null,
+    skills_allow_untrusted_autoload: allowUntrustedAutoLoad,
+    skills_warning: allowUntrustedAutoLoad
+      ? "allowUntrustedAutoLoad is set; external skill bodies are still never auto-loaded."
+      : null,
+    skills: skillHealth,
     jobs: jobStats,
   };
 }

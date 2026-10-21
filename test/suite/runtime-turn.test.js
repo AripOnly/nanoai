@@ -17,6 +17,7 @@ import {
   errorEvent,
   textTurn,
   toolCall,
+  toolTurn,
   usage,
 } from "../helpers/fake-provider.js";
 
@@ -361,6 +362,93 @@ describe("runtime runTurn", () => {
     assert.equal(finalInput.includes("q1"), false);
     assert.equal(finalInput.includes("q2"), false);
     assert.equal(session.state.busy, false);
+  });
+
+  it("injects the skill catalog and executes loadSkill with a turn view", async () => {
+    const seen = [];
+    const view = {
+      enabled: true,
+      revision: 4,
+      available: 1,
+      catalog:
+        "<available_skills>\n- fixture-pdf: Build a PDF report. [trust: user-approved]\n</available_skills>",
+      autoLoad() {
+        return { skill: null, content: "", hints: ["fixture-pdf"] };
+      },
+      search() {
+        return [];
+      },
+      async load(name, file) {
+        seen.push([name, file]);
+        return {
+          name,
+          trust: "user-approved",
+          content: `<skill name="${name}" trust="user-approved">body</skill>`,
+          allowed_tools: ["read"],
+          files: [],
+        };
+      },
+    };
+    const provider = createFakeProvider({
+      turns: [
+        toolTurn({
+          call_id: "skill-1",
+          name: "loadSkill",
+          arguments: { name: "fixture-pdf" },
+        }),
+        textTurn("done"),
+      ],
+    });
+    const session = createFakeSession();
+    const deps = {
+      ...depsFor({ session, provider }),
+      skills: { turnView: () => view },
+    };
+
+    const events = await collect(
+      runTurn({
+        name: "nano",
+        prompt: "tolong buat laporan pdf",
+        session_id: SESSION_ID,
+        deps,
+      }),
+    );
+
+    const request = provider.calls.request[0];
+    assert.ok(request.tools.some((tool) => tool.name === "loadSkill"));
+    assert.ok(request.tools.some((tool) => tool.name === "searchSkills"));
+    assert.match(request.instruction, /# Skills/);
+    assert.match(request.instruction, /available_skills/);
+    assert.match(request.instruction, /# Skill hints/);
+    assert.match(request.instruction, /fixture-pdf/);
+
+    const result = events.find(
+      (event) => event.role === EVENT.TOOL_RESULT && event.content.name === "loadSkill",
+    );
+    assert.ok(result);
+    assert.equal(result.content.result.success, true);
+    assert.match(result.content.result.content, /<skill name="fixture-pdf"/);
+    assert.deepEqual(seen, [["fixture-pdf", null]]);
+    assert.equal(session.state.busy, false);
+  });
+
+  it("does not advertise skill tools when no skill view is available", async () => {
+    const provider = createFakeProvider({ turns: [textTurn("plain")] });
+    const session = createFakeSession();
+    const events = await collect(
+      runTurn({
+        name: "nano",
+        prompt: "hi",
+        session_id: SESSION_ID,
+        deps: depsFor({ session, provider }),
+      }),
+    );
+
+    const request = provider.calls.request[0];
+    assert.equal(request.tools.some((tool) => tool.name === "loadSkill"), false);
+    assert.equal(request.tools.some((tool) => tool.name === "searchSkills"), false);
+    assert.equal(request.instruction.includes("# Skills"), false);
+    assert.equal(events.at(-2).content.text, "plain");
   });
 
   it("closes the turn when initial compaction fails", async () => {

@@ -11,6 +11,7 @@ import { settingsRouter } from "../routes/settings-route.js";
 import { modelsRouter } from "../routes/models-route.js";
 import { agentRouter } from "../routes/agent-route.js";
 import { jobRouter } from "../routes/job-route.js";
+import { skillRouter } from "../routes/skill-route.js";
 import { errorMiddleware } from "../middlewares/error-middleware.js";
 import { authMiddleware } from "../middlewares/auth-middleware.js";
 import { auditMiddleware } from "../middlewares/audit-middleware.js";
@@ -33,11 +34,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *   reach turns through app.locals.runtime.
  * @param {object} [options.jobs] durable job manager; reaches HTTP through
  *   app.locals.jobs and tools through the runtime.
+ * @param {object} [options.skills] skill registry; reaches HTTP through
+ *   app.locals.skills and the runtime through its turn view.
  */
-export async function createApp({ runtime, jobs = null } = {}) {
+export async function createApp({ runtime, jobs = null, skills = null } = {}) {
   const app = express();
   app.locals.runtime = runtime;
   app.locals.jobs = jobs;
+  app.locals.skills = skills;
 
   // First settings snapshot (and therefore the CORS list) must be ready before
   // requests arrive. Later changes are read from the live snapshot on each
@@ -59,6 +63,8 @@ export async function createApp({ runtime, jobs = null } = {}) {
         "X-Restart-Required",
         "X-Models-Revision",
         "X-Models-Error",
+        "X-Skills-Revision",
+        "X-Skills-Error",
       ],
     }),
   );
@@ -73,7 +79,7 @@ export async function createApp({ runtime, jobs = null } = {}) {
   // serving, a 503 means up but degraded (settings/database). No auth.
   app.get("/health", async (req, res, next) => {
     try {
-      const health = await buildHealth({ jobs });
+      const health = await buildHealth({ jobs, skills });
       res.status(health.status === "ok" ? 200 : 503).send(health);
     } catch (error) {
       next(error);
@@ -90,6 +96,7 @@ export async function createApp({ runtime, jobs = null } = {}) {
   app.use("/api/v1/models", modelsRouter);
   app.use("/api/v1/agent", agentRouter);
   app.use("/api/v1/jobs", jobRouter);
+  app.use("/api/v1/skills", skillRouter);
 
   // Web dashboard: served from the prebuilt client (npm run build:web) so that
   // `gateway start` activates API + web together with no dev server. Missing

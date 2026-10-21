@@ -111,6 +111,49 @@ describe("settings-service", () => {
     );
   });
 
+  it("validates skills settings and merges partial updates", async () => {
+    await rejectsResponseError(
+      settingsService.updateSettings({ skills: "on" }),
+      400,
+      /skills must be an object/,
+    );
+    await rejectsResponseError(
+      settingsService.updateSettings({ skills: { nope: true } }),
+      400,
+      /unknown key/,
+    );
+    await rejectsResponseError(
+      settingsService.updateSettings({ skills: { enabled: "yes" } }),
+      400,
+      /must be a boolean/,
+    );
+    await rejectsResponseError(
+      settingsService.updateSettings({ skills: { maxCatalogEntries: 0 } }),
+      400,
+      /between 1 and 1000/,
+    );
+    await rejectsResponseError(
+      settingsService.updateSettings({ skills: { maxSupportingFileBytes: 1023 } }),
+      400,
+      /between 1024/,
+    );
+
+    const before = (await settingsService.getSettings()).skills;
+    try {
+      const updated = await settingsService.updateSettings({
+        skills: { autoLoadTrusted: false },
+      });
+      assert.equal(updated.skills.autoLoadTrusted, false);
+      assert.equal(updated.skills.enabled, before.enabled);
+      assert.equal(
+        updated.skills.allowUntrustedAutoLoad,
+        before.allowUntrustedAutoLoad,
+      );
+    } finally {
+      await settingsService.updateSettings({ skills: before });
+    }
+  });
+
   it("validates provider_keys shape and values", async () => {
     await rejectsResponseError(
       settingsService.updateSettings({ provider_keys: [] }),

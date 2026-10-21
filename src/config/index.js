@@ -19,9 +19,11 @@ export {
 } from "./settings.js";
 
 export {
+  JOBS_DEFAULTS,
   SETTINGS_DEFAULTS,
   SETTINGS_KEYS,
   SETTINGS_SCHEMA,
+  SKILLS_DEFAULTS,
   isHotKey,
   isRestartKey,
   isSecretKey,
