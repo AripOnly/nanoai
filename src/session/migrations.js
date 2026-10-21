@@ -8,7 +8,7 @@
 // that applied the same changes ad hoc. The applied version is stored in
 // PRAGMA user_version; only pending migrations run, inside one transaction.
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const hasColumn = (db, table, column) =>
   db
@@ -62,6 +62,49 @@ const MIGRATIONS = [
       if (!hasColumn(db, "turn", "status")) {
         db.exec("ALTER TABLE turn ADD COLUMN status TEXT DEFAULT 'complete'");
       }
+    },
+  },
+  {
+    version: 4,
+    name: "session channel identity, turn idempotency, model and usage",
+    apply(db) {
+      const sessionColumns = [
+        ["channel", "TEXT"],
+        ["external_ref", "TEXT"],
+        ["parent_session_id", "TEXT"],
+        ["kind", "TEXT NOT NULL DEFAULT 'chat'"],
+        ["model", "TEXT"],
+      ];
+      for (const [column, type] of sessionColumns) {
+        if (!hasColumn(db, "session", column)) {
+          db.exec(`ALTER TABLE session ADD COLUMN ${column} ${type}`);
+        }
+      }
+
+      const turnColumns = [
+        ["client_message_id", "TEXT"],
+        ["provider", "TEXT"],
+        ["model", "TEXT"],
+        ["usage", "TEXT"],
+      ];
+      for (const [column, type] of turnColumns) {
+        if (!hasColumn(db, "turn", column)) {
+          db.exec(`ALTER TABLE turn ADD COLUMN ${column} ${type}`);
+        }
+      }
+
+      // A channel mapping and a client retry are both unique identities. The
+      // partial indexes deliberately ignore NULL so legacy rows stay valid.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_external
+          ON session(channel, external_ref)
+          WHERE external_ref IS NOT NULL;
+      `);
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_client_message
+          ON turn(session_id, client_message_id)
+          WHERE client_message_id IS NOT NULL;
+      `);
     },
   },
 ];

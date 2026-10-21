@@ -24,9 +24,37 @@ export function isSessionBusy(session_id) {
   return sessionStore.isActive(session_id);
 }
 
-/** Create a session and name it from its first prompt. */
-export function createSession(prompt) {
-  return sessionStore.createSession(nameFromPrompt(prompt), prompt);
+/**
+ * Create a session. The legacy string form names the session from its prompt;
+ * the object form carries channel identity, a parent/kind, and a model
+ * override without changing that old call shape.
+ */
+export function createSession(promptOrOptions) {
+  if (
+    promptOrOptions !== null &&
+    typeof promptOrOptions === "object" &&
+    !Array.isArray(promptOrOptions)
+  ) {
+    const options = { ...promptOrOptions };
+    const prompt =
+      options.prompt ?? options.initialPrompt ?? options.initial_prompt;
+    return sessionStore.createSession({
+      ...options,
+      name: options.name ?? (typeof prompt === "string" && prompt.trim() !== ""
+        ? nameFromPrompt(prompt)
+        : undefined),
+      initialPrompt: prompt ?? null,
+      externalRef: options.externalRef ?? options.external_ref,
+      parentSessionId:
+        options.parentSessionId ?? options.parent_session_id,
+    });
+  }
+  return sessionStore.createSession(nameFromPrompt(promptOrOptions), promptOrOptions);
+}
+
+/** Map channel + external_ref to one session, creating it on first contact. */
+export function resolveSession({ channel, externalRef, model = null } = {}) {
+  return sessionStore.resolveSession({ channel, externalRef, model });
 }
 
 export function listSessions() {
@@ -45,6 +73,25 @@ export function getSessionInfo(session_id) {
 
 export function getConversation(session_id) {
   return sessionStore.getConversation(session_id);
+}
+
+/** Backwards-paginated conversation page; `before` is a turn id cursor. */
+export function getConversationPage(session_id, options = {}) {
+  return sessionStore.getConversationPage(session_id, options);
+}
+
+/** Turn metadata (no conversation parts) newest-first. */
+export function listTurns(session_id, options = {}) {
+  return sessionStore.listTurns(session_id, options);
+}
+
+/** One turn by id, including parsed parts and usage. */
+export function getTurn(turnId) {
+  return sessionStore.getTurn(turnId);
+}
+
+export function findTurnByClientMessageId(session_id, clientMessageId) {
+  return sessionStore.findTurnByClientMessageId(session_id, clientMessageId);
 }
 
 export function renameSession(session_id, name) {
@@ -69,8 +116,8 @@ export function recoverInterruptedTurn(session_id) {
 }
 
 /** Reserve the session and durably insert the user prompt. */
-export function beginTurn(session_id, prompt) {
-  sessionStore.start(session_id, EVENT.USER, prompt);
+export function beginTurn(session_id, prompt, options = {}) {
+  return sessionStore.start(session_id, EVENT.USER, prompt, options);
 }
 
 /** Persist (or buffer) one event produced during the active turn. */
@@ -78,9 +125,24 @@ export function recordEvent(session_id, event) {
   sessionStore.record(session_id, event);
 }
 
-/** Finalize the active turn and store the latest token accounting. */
-export function commitTurn(session_id, token = null) {
-  sessionStore.commit(session_id, token);
+/** Finalize the active turn and store token/usage accounting. */
+export function commitTurn(
+  session_id,
+  token = null,
+  usage = null,
+  status = "complete",
+) {
+  sessionStore.commit(session_id, token, usage, status);
+}
+
+/** Fill provider/model into the turn row once the resolver has chosen them. */
+export function setTurnModel(turnId, provider, model) {
+  sessionStore.setTurnModel(turnId, provider, model);
+}
+
+/** Persist the per-session model override (null clears it). */
+export function setSessionModel(session_id, model) {
+  return sessionStore.setSessionModel(session_id, model);
 }
 
 /** Latest stored compaction summary for a session. */

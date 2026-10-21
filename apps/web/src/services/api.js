@@ -3,6 +3,10 @@
 // When the gateway serves the built dashboard, the API lives on the same
 // origin. During `vite dev` the dashboard runs on its own port, so fall back
 // to the default gateway port. VITE_API_BASE overrides both.
+//
+// The actual HTTP + SSE implementation is shared with the CLI in apps/client.
+import { createGatewayClient } from "#client";
+
 const baseUrl =
   import.meta.env.VITE_API_BASE ??
   (import.meta.env.DEV
@@ -11,36 +15,13 @@ const baseUrl =
 
 const TOKEN_STORAGE_KEY = "nano_gateway_token";
 
-function authHeaders() {
-  const token =
-    typeof localStorage !== "undefined"
-      ? localStorage.getItem(TOKEN_STORAGE_KEY)
-      : null;
-
-  return token ? { Authorization: `Bearer ${token}` } : {};
+function gatewayToken() {
+  return typeof localStorage !== "undefined"
+    ? localStorage.getItem(TOKEN_STORAGE_KEY)
+    : null;
 }
 
-/**
- * fetch() wrapper for the NanoAI gateway. Attaches the gateway token and
- * converts a 401 into an actionable message (the settings UI that manages
- * the token does not exist yet).
- */
-export async function apiFetch(path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      ...authHeaders(),
-      ...(options.headers ?? {}),
-    },
-  });
-
-  if (response.status === 401) {
-    throw new Error(
-      "Gateway unauthorized (401). Save your gateway token with: " +
-        `localStorage.setItem('${TOKEN_STORAGE_KEY}', '<token>'). ` +
-        "The token is printed once on the gateway's first boot.",
-    );
-  }
-
-  return response;
-}
+export const gateway = createGatewayClient({
+  baseUrl,
+  getToken: gatewayToken,
+});

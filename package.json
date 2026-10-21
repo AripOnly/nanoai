@@ -15,7 +15,8 @@
     "gateway"
   ],
   "imports": {
-    "#src/*": "./src/*"
+    "#src/*": "./src/*",
+    "#client": "./apps/client/index.js"
   },
   "bin": {
     "nanoai": "./bin/nanoai.js"
@@ -24,6 +25,7 @@
     "./bin/",
     "./gateway/",
     "./src/",
+    "./apps/client/",
     "./apps/cli/",
     "./apps/console/",
     "./apps/web/dist",

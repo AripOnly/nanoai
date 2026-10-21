@@ -1,6 +1,7 @@
 // src/agent/event-type.js
 
 export const EVENT = {
+  TURN_START: "turn_start",
   USER: "user",
   INTERACTION_ID: "interaction_id",
   ASSISTANT: "assistant",

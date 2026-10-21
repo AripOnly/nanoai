@@ -21,7 +21,27 @@ function getConversation(req, res, next) {
   try {
     const { session_id } = req.params;
     requireSessionId(session_id);
-    res.status(200).send(sessionService.getConversation(session_id));
+    res.status(200).send(
+      sessionService.getConversation(session_id, {
+        limit: req.query?.limit,
+        before: req.query?.before,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+function listTurns(req, res, next) {
+  try {
+    const { session_id } = req.params;
+    requireSessionId(session_id);
+    res.status(200).send(
+      sessionService.listTurns(session_id, {
+        limit: req.query?.limit,
+        before: req.query?.before,
+      }),
+    );
   } catch (error) {
     next(error);
   }
@@ -39,25 +59,35 @@ function getSessionInfo(req, res, next) {
 
 function createSession(req, res, next) {
   try {
-    const { prompt } = req.body ?? {};
-    if (typeof prompt !== "string" || prompt.trim() === "") {
-      throw new ResponseError(400, "prompt must be a non-empty string.");
-    }
-    return res.status(200).send(sessionService.createSession(prompt));
+    const body = req.body ?? {};
+    return res.status(200).send(sessionService.createSession(body));
+  } catch (error) {
+    next(error);
+  }
+}
+
+function resolveSession(req, res, next) {
+  try {
+    return res.status(200).send(sessionService.resolveSession(req.body ?? {}));
+  } catch (error) {
+    next(error);
+  }
+}
+
+function updateSession(req, res, next) {
+  try {
+    const { session_id } = req.params;
+    requireSessionId(session_id);
+    return res
+      .status(200)
+      .send(sessionService.updateSession(session_id, req.body ?? {}));
   } catch (error) {
     next(error);
   }
 }
 
 function renameSession(req, res, next) {
-  try {
-    const { session_id } = req.params;
-    requireSessionId(session_id);
-    const { name } = req.body ?? {};
-    return res.status(200).send(sessionService.renameSession(session_id, name));
-  } catch (error) {
-    next(error);
-  }
+  return updateSession(req, res, next);
 }
 
 function deleteSession(req, res, next) {
@@ -70,4 +100,14 @@ function deleteSession(req, res, next) {
   }
 }
 
-export default { listSession, getConversation, getSessionInfo, createSession, renameSession, deleteSession };
+export default {
+  listSession,
+  getConversation,
+  listTurns,
+  getSessionInfo,
+  createSession,
+  resolveSession,
+  updateSession,
+  renameSession,
+  deleteSession,
+};

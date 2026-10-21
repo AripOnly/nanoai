@@ -43,12 +43,107 @@ function errorEvent(error) {
   return { role: EVENT.ERROR, content: { message } };
 }
 
+const USAGE_FIELDS = Object.freeze([
+  "input_tokens",
+  "output_tokens",
+  "total_tokens",
+  "cached_tokens",
+  "reasoning_tokens",
+]);
+
+function createUsage() {
+  return {
+    requests: 0,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+    cached_tokens: null,
+    reasoning_tokens: null,
+  };
+}
+
+/** Sum provider step usage across the whole turn (one turn may have many calls). */
+function addUsage(usage, content) {
+  if (!content || typeof content !== "object") return usage;
+  usage.requests += 1;
+  for (const field of USAGE_FIELDS) {
+    const value = content[field];
+    if (Number.isFinite(value)) {
+      usage[field] = (usage[field] ?? 0) + value;
+    }
+  }
+  return usage;
+}
+
+function finalizedUsage(usage) {
+  return usage && usage.requests > 0 ? { ...usage } : null;
+}
+
+function turnStartEvent({
+  turnId = null,
+  sessionId,
+  replayed = false,
+  provider = null,
+  model = null,
+}) {
+  return {
+    role: EVENT.TURN_START,
+    content: {
+      turn_id: turnId,
+      session_id: sessionId,
+      replayed,
+      provider,
+      model,
+    },
+  };
+}
+
+/**
+ * Replay an already persisted turn for a retry with the same client message
+ * id. User text is omitted because the caller already has its own copy; tokens
+ * are re-emitted from the stored per-turn accounting.
+ */
+function* replayTurn(existing, sessionId) {
+  yield turnStartEvent({
+    turnId: existing.id,
+    sessionId,
+    replayed: true,
+    provider: existing.provider ?? null,
+    model: existing.model ?? null,
+  });
+
+  const parts = Array.isArray(existing.parts) ? existing.parts : [];
+  for (const event of parts) {
+    if (
+      event?.role === EVENT.USER ||
+      event?.role === EVENT.TOKEN ||
+      event?.role === EVENT.TOOL_UPDATE ||
+      event?.role === EVENT.TURN_START
+    ) {
+      continue;
+    }
+    yield event;
+  }
+
+  const usage = existing.usage;
+  if (usage && typeof usage === "object") {
+    const content = {};
+    for (const field of USAGE_FIELDS) {
+      if (Number.isFinite(usage[field])) content[field] = usage[field];
+    }
+    if (Object.keys(content).length > 0) {
+      yield { role: EVENT.TOKEN, content };
+    }
+  }
+}
+
 function visibleInput(conversation) {
   return conversation.filter(
     (event) =>
       event?.role !== EVENT.ERROR &&
       event?.role !== EVENT.COMPACTION &&
-      event?.role !== EVENT.TOOL_UPDATE,
+      event?.role !== EVENT.TOOL_UPDATE &&
+      event?.role !== EVENT.TURN_START,
   );
 }
 
@@ -100,8 +195,17 @@ function logFailure(logger, label, error) {
 
 export async function* runTurn({
   name,
+  agentName,
   prompt,
   session_id,
+  sessionId,
+  channel,
+  external_ref,
+  externalRef,
+  client_message_id,
+  clientMessageId,
+  model,
+  modelRef,
   signal,
   allowedTools,
   policy,
@@ -124,21 +228,94 @@ export async function* runTurn({
   const logger = deps.logger ?? console;
   let token = 0;
   let began = false;
+  let turnId = null;
+  let failed = false;
+  let idempotencyKey = clientMessageId ?? client_message_id ?? null;
+  let requestedModel = modelRef ?? model ?? null;
+  let targetChannel = channel ?? null;
+  let targetExternalRef = externalRef ?? external_ref ?? null;
+  const usage = createUsage();
+
+  // Accept the HTTP snake_case names and the internal camelCase names. The
+  // old `name`/`session_id` call shape remains valid for existing callers.
+  name = agentName ?? name;
+  session_id = sessionId ?? session_id;
 
   try {
     if (typeof prompt !== "string" || prompt.trim() === "") {
       throw new Error("prompt must be a non-empty string.");
     }
-    if (typeof session_id !== "string" || session_id.trim() === "") {
-      throw new Error("session_id must be a non-empty string.");
+    if (typeof name !== "string" || name.trim() === "") {
+      throw new Error("agent name must be a non-empty string.");
+    }
+    if (idempotencyKey !== null) {
+      if (
+        typeof idempotencyKey !== "string" ||
+        idempotencyKey.trim() === ""
+      ) {
+        throw new Error("client_message_id must be a non-empty string.");
+      }
+      idempotencyKey = idempotencyKey.trim();
+    }
+    if (requestedModel !== null) {
+      if (typeof requestedModel !== "string") {
+        throw new Error("model must be a string.");
+      }
+      requestedModel = requestedModel.trim();
+      if (requestedModel === "") {
+        throw new Error("model must be a non-empty string.");
+      }
+      if (requestedModel.length > 256) {
+        throw new Error("model must be at most 256 characters.");
+      }
     }
 
+    const hasExplicitSession =
+      session_id !== undefined && session_id !== null;
+
+    if (hasExplicitSession) {
+      if (
+        typeof session_id !== "string" ||
+        session_id.trim() === ""
+      ) {
+        throw new Error("session_id must be a non-empty string.");
+      }
+      if (targetChannel !== null || targetExternalRef !== null) {
+        throw new Error(
+          "Provide either session_id or channel + external_ref, not both.",
+        );
+      }
+    } else if (
+      typeof targetChannel !== "string" ||
+      targetChannel.trim() === "" ||
+      typeof targetExternalRef !== "string" ||
+      targetExternalRef.trim() === ""
+    ) {
+      throw new Error("session_id or channel + external_ref is required.");
+    }
+
+    // Validate the agent and the aborted signal before resolving a channel
+    // identity: a rejected request must not create a session as a side effect.
     const definition = getAgent(name);
     if (!definition) {
       throw new Error(unknownAgentMessage(name));
     }
 
     if (abortRequested(signal)) return;
+
+    if (!hasExplicitSession) {
+      if (typeof session.resolveSession !== "function") {
+        throw new Error("Session door does not support channel resolution.");
+      }
+      const resolved = session.resolveSession({
+        channel: targetChannel,
+        externalRef: targetExternalRef,
+      });
+      if (!resolved?.id) {
+        throw new Error("Session resolver returned no session.");
+      }
+      session_id = resolved.id;
+    }
 
     if (!session.getSession(session_id)) {
       throw new Error(`Session ${session_id} not found`);
@@ -152,6 +329,22 @@ export async function* runTurn({
     // aborted before reserving the session for this one.
     session.recoverInterruptedTurn(session_id);
 
+    // Duplicate client message: return the existing turn instead of creating
+    // another one. A live duplicate still takes the single-flight path above.
+    if (
+      idempotencyKey !== null &&
+      typeof session.findTurnByClientMessageId === "function"
+    ) {
+      const existing = session.findTurnByClientMessageId(
+        session_id,
+        idempotencyKey,
+      );
+      if (existing) {
+        yield* replayTurn(existing, session_id);
+        return;
+      }
+    }
+
     const before = session.getSession(session_id) ?? {};
     let summary = before.summary ?? null;
     let conversation = session.getConversation(session_id) ?? [];
@@ -159,23 +352,63 @@ export async function* runTurn({
 
     // Reserve the session first: the prompt is durable from here on and a
     // concurrent turn fails before doing model work.
-    session.beginTurn(session_id, prompt);
+    const started = session.beginTurn(session_id, prompt, {
+      clientMessageId: idempotencyKey,
+      provider: null,
+      model: before.model ?? null,
+    });
+    if (started?.replayed) {
+      yield* replayTurn(started, session_id);
+      return;
+    }
     began = true;
+    turnId = Number.isInteger(started?.id) ? started.id : null;
     session.autoNameSession(session_id, prompt);
+
+    yield turnStartEvent({
+      turnId,
+      sessionId: session_id,
+      replayed: false,
+      provider: null,
+      model: requestedModel ?? before.model ?? null,
+    });
 
     if (abortRequested(signal)) return;
 
     const config = getConfig() ?? {};
     const catalog = typeof getCatalog === "function" ? getCatalog() : null;
-    const modelRef = config.model;
+    const currentSession = session.getSession(session_id) ?? before;
+    const effectiveModelRef =
+      requestedModel ?? currentSession.model ?? config.model;
     const modelHandle = await resolveModel({
       config,
       catalog,
-      modelRef,
+      modelRef: effectiveModelRef,
       requiredCapabilities: ["streaming", "toolCalling"],
     });
     if (!modelHandle?.adapter || !modelHandle?.model) {
       throw new Error("Model resolver returned an incomplete handle.");
+    }
+
+    if (
+      turnId !== null &&
+      typeof session.setTurnModel === "function"
+    ) {
+      session.setTurnModel(
+        turnId,
+        modelHandle.providerId ?? null,
+        modelHandle.modelId ?? null,
+      );
+    }
+
+    // Persist an explicit model only after the resolver accepted it. A bad
+    // model ref must fail the turn without pinning the session to a broken
+    // override for every later turn.
+    if (
+      requestedModel !== null &&
+      typeof session.setSessionModel === "function"
+    ) {
+      session.setSessionModel(session_id, requestedModel);
     }
 
     const contextWindow =
@@ -221,9 +454,14 @@ export async function* runTurn({
           };
         }
 
+        if (event.role === EVENT.TOKEN) {
+          addUsage(usage, event.content);
+        }
+
         if (event.role === EVENT.ERROR) {
           // The compaction request failed. Do not send the oversized history
           // anyway; persist the provider error, surface it, and close the turn.
+          failed = true;
           session.recordEvent(session_id, event);
           yield event;
           return;
@@ -287,6 +525,9 @@ export async function* runTurn({
           if (event.role === EVENT.ASSISTANT) {
             compacted += event.content?.text ?? "";
           }
+          if (event.role === EVENT.TOKEN) {
+            addUsage(usage, event.content);
+          }
         }
       } catch (error) {
         logger.warn?.(
@@ -331,8 +572,12 @@ export async function* runTurn({
     for await (const event of agentLoop(request)) {
       session.recordEvent(session_id, event);
 
+      if (event.role === EVENT.ERROR) failed = true;
       if (event.role === EVENT.TOKEN) {
-        token = event.content.total_tokens;
+        addUsage(usage, event.content);
+        if (Number.isFinite(event.content?.total_tokens)) {
+          token = event.content.total_tokens;
+        }
       }
 
       yield event;
@@ -343,6 +588,7 @@ export async function* runTurn({
     if (error instanceof SessionBusyError) throw error;
     if (abortRequested(signal)) return;
 
+    failed = true;
     logFailure(logger, "turn failed", error);
     const event = errorEvent(error);
     if (began) {
@@ -355,8 +601,18 @@ export async function* runTurn({
     yield event;
   } finally {
     if (began) {
+      const status = abortRequested(signal)
+        ? "aborted"
+        : failed
+          ? "error"
+          : "complete";
       try {
-        session.commitTurn(session_id, token);
+        session.commitTurn(
+          session_id,
+          token,
+          finalizedUsage(usage),
+          status,
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logFailure(logger, "commit failed", error);

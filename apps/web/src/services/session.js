@@ -1,41 +1,17 @@
 // src/services/session.js
-import { apiFetch } from "./api.js";
+import { gateway } from "./api.js";
 
-async function create(prompt) {
-  const response = await apiFetch(`/session/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ prompt: prompt }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
-  }
-
-  return await response.json();
+async function create(promptOrOptions) {
+  return gateway.createSession(promptOrOptions);
 }
 
 async function list() {
-  const response = await apiFetch(`/session/list-session`);
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
-  }
-
-  return await response.json();
+  return gateway.listSessions();
 }
 
-async function getConversation(sessionId) {
+async function getConversation(sessionId, options = {}) {
   try {
-    const response = await apiFetch(`/session/${sessionId}`);
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    return await response.json();
+    return await gateway.getConversation(sessionId, options);
   } catch (error) {
     console.warn(`Error API: ${error.message}`);
     throw error;
@@ -44,13 +20,7 @@ async function getConversation(sessionId) {
 
 async function getSessionInfo(sessionId) {
   try {
-    const response = await apiFetch(`/session/info/${sessionId}`);
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    return await response.json();
+    return await gateway.getSessionInfo(sessionId);
   } catch (error) {
     console.warn(`Error API: ${error.message}`);
     throw error;

@@ -7,7 +7,13 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { SCHEMA_VERSION, migrate } from "../../src/session/migrations.js";
+import {
+  backupBeforeMigration,
+  listMigrationBackups,
+} from "../../src/session/migration-backup.js";
 import { backupDatabase, pruneBackups } from "../../scripts/backup.mjs";
 import { restoreDatabase } from "../../scripts/restore.mjs";
 
@@ -24,14 +30,44 @@ describe("migrations", () => {
     const db = new Database(":memory:");
     try {
       const applied = migrate(db);
-      assert.deepEqual(applied, [1, 2, 3]);
+      assert.deepEqual(applied, [1, 2, 3, 4]);
       assert.equal(db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
-      for (const column of ["id", "name", "summary", "token", "initial_prompt"]) {
+      for (const column of [
+        "id",
+        "name",
+        "summary",
+        "token",
+        "initial_prompt",
+        "channel",
+        "external_ref",
+        "parent_session_id",
+        "kind",
+        "model",
+      ]) {
         assert.ok(columns(db, "session").includes(column), `session.${column} missing`);
       }
-      for (const column of ["id", "parts", "session_id", "status"]) {
+      for (const column of [
+        "id",
+        "parts",
+        "session_id",
+        "status",
+        "client_message_id",
+        "provider",
+        "model",
+        "usage",
+      ]) {
         assert.ok(columns(db, "turn").includes(column), `turn.${column} missing`);
       }
+      const indexes = db
+        .prepare("PRAGMA index_list('session')")
+        .all()
+        .map((row) => row.name);
+      assert.ok(indexes.includes("idx_session_channel_external"));
+      const turnIndexes = db
+        .prepare("PRAGMA index_list('turn')")
+        .all()
+        .map((row) => row.name);
+      assert.ok(turnIndexes.includes("idx_turn_client_message"));
     } finally {
       db.close();
     }
@@ -45,14 +81,155 @@ describe("migrations", () => {
       db.exec("CREATE TABLE turn (id INTEGER PRIMARY KEY AUTOINCREMENT, parts TEXT NOT NULL, session_id TEXT)");
       db.exec("INSERT INTO session (id, name) VALUES ('s1', 'legacy')");
       const applied = migrate(db);
-      assert.deepEqual(applied, [1, 2, 3]);
+      assert.deepEqual(applied, [1, 2, 3, 4]);
       assert.equal(db.prepare("SELECT name FROM session WHERE id = 's1'").get().name, "legacy");
       assert.ok(columns(db, "session").includes("token"));
+      assert.ok(columns(db, "session").includes("channel"));
       assert.ok(columns(db, "turn").includes("status"));
+      assert.ok(columns(db, "turn").includes("client_message_id"));
       // Second run is a no-op.
       assert.deepEqual(migrate(db), []);
     } finally {
       db.close();
+    }
+  });
+
+  it("backs up a v3 database before applying v4", async () => {
+    const dir = tempDir("nano-migrate-v4-");
+    const dbPath = path.join(dir, "memories.db");
+    const backups = path.join(dir, "backups");
+    const db = new Database(dbPath);
+    try {
+      db.exec(`
+        CREATE TABLE session (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          summary TEXT,
+          token INTEGER DEFAULT 0,
+          initial_prompt TEXT,
+          created_at DATETIME DEFAULT (datetime('now','localtime')),
+          updated_at DATETIME DEFAULT (datetime('now','localtime'))
+        );
+        CREATE TABLE turn (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          parts TEXT NOT NULL,
+          session_id TEXT,
+          status TEXT DEFAULT 'complete'
+        );
+        INSERT INTO session (id, name, token) VALUES ('s1', 'v3 legacy', 42);
+        INSERT INTO turn (parts, session_id) VALUES ('[]', 's1');
+        PRAGMA user_version = 3;
+      `);
+
+      const backupPath = await backupBeforeMigration(db, {
+        dbPath,
+        backupsDir: backups,
+        fromVersion: 3,
+        toVersion: 4,
+      });
+      assert.ok(fs.statSync(backupPath).isFile());
+
+      const copy = new Database(backupPath, { readonly: true });
+      try {
+        assert.equal(
+          copy.prepare("PRAGMA user_version").get().user_version,
+          3,
+        );
+        assert.equal(
+          copy.prepare("SELECT name FROM session WHERE id = 's1'").get().name,
+          "v3 legacy",
+        );
+        assert.equal(copy.prepare("SELECT COUNT(*) AS count FROM turn").get().count, 1);
+        assert.equal(
+          columns(copy, "session").includes("channel"),
+          false,
+          "the backup must be a true pre-migration copy",
+        );
+      } finally {
+        copy.close();
+      }
+
+      assert.deepEqual(migrate(db), [4]);
+      assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
+      assert.equal(
+        db.prepare("SELECT token FROM session WHERE id = 's1'").get().token,
+        42,
+      );
+      assert.ok(columns(db, "session").includes("channel"));
+      assert.ok(columns(db, "turn").includes("client_message_id"));
+    } finally {
+      db.close();
+    }
+  });
+
+  it("backs up automatically when the session database migrates at boot", async () => {
+    const dir = tempDir("nano-auto-migrate-");
+    const dbPath = path.join(dir, "memories.db");
+    const db = new Database(dbPath);
+    try {
+      db.exec(`
+        CREATE TABLE session (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          summary TEXT,
+          token INTEGER DEFAULT 0,
+          initial_prompt TEXT,
+          created_at DATETIME DEFAULT (datetime('now','localtime')),
+          updated_at DATETIME DEFAULT (datetime('now','localtime'))
+        );
+        CREATE TABLE turn (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          parts TEXT NOT NULL,
+          session_id TEXT,
+          status TEXT DEFAULT 'complete'
+        );
+        INSERT INTO session (id, name, token) VALUES ('boot-1', 'boot legacy', 7);
+        PRAGMA user_version = 3;
+      `);
+    } finally {
+      db.close();
+    }
+
+    const sqlUrl = new URL("../../src/session/sql.js", import.meta.url).href;
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const door = await import(${JSON.stringify(sqlUrl)}); door.closeDatabase();`,
+      ],
+      {
+        env: { ...process.env, NANO_DATA_DIR: dir },
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0, stderr);
+
+    const backups = listMigrationBackups(path.join(dir, "backups"));
+    assert.equal(backups.length, 1);
+    const copy = new Database(backups[0], { readonly: true });
+    try {
+      assert.equal(copy.prepare("PRAGMA user_version").get().user_version, 3);
+    } finally {
+      copy.close();
+    }
+
+    const migrated = new Database(dbPath, { readonly: true });
+    try {
+      assert.equal(migrated.prepare("PRAGMA user_version").get().user_version, 4);
+      assert.equal(
+        migrated.prepare("SELECT token FROM session WHERE id = 'boot-1'").get()
+          .token,
+        7,
+      );
+      assert.ok(columns(migrated, "session").includes("channel"));
+    } finally {
+      migrated.close();
     }
   });
 

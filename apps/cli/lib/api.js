@@ -1,24 +1,21 @@
 // apps/cli/lib/api.js
 // HTTP client for the NanoAI gateway. The CLI runs on the same machine, so it
 // reads the gateway token from the local settings file instead of asking
-// the user to paste it.
+// the user to paste it. Transport and SSE framing live in the shared client,
+// the same code the browser uses.
 import { settings } from "#src/config/config.js";
+import {
+  createGatewayClient,
+  isGatewayConnectionError,
+} from "#client";
 
 const PORT = process.env.PORT ?? "3060";
 const BASE_URL = process.env.NANO_GATEWAY_URL ?? `http://localhost:${PORT}/api/v1`;
 
-function connectionError() {
-  return new Error(
-    `Cannot reach the gateway at ${BASE_URL}. Start it first with: node gateway/server.js`,
-  );
-}
-
 let cachedToken = null;
 
 async function gatewayToken() {
-  if (cachedToken) {
-    return cachedToken;
-  }
+  if (cachedToken) return cachedToken;
 
   let token = null;
   try {
@@ -37,153 +34,74 @@ async function gatewayToken() {
   return token;
 }
 
-async function request(path, options = {}) {
-  const token = await gatewayToken();
-  let response;
-  try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(options.headers ?? {}),
-      },
-    });
-  } catch {
-    throw connectionError();
-  }
+const client = createGatewayClient({
+  baseUrl: BASE_URL,
+  getToken: gatewayToken,
+});
 
-  if (response.status === 401) {
+function normalize(error) {
+  if (error?.status === 401) {
     cachedToken = null;
-    throw new Error(
+    return new Error(
       "Gateway unauthorized (401). The stored token is wrong or stale.",
     );
   }
-
-  if (!response.ok) {
-    let message = `API request failed: ${response.status}`;
-    try {
-      const body = await response.json();
-      if (body?.content?.message) {
-        message = body.content.message;
-      }
-    } catch {
-      // Keep the status-based message.
-    }
-    throw new Error(message);
-  }
-
-  return response.json();
+  return error;
 }
 
-async function* sse(path, body) {
-  const token = await gatewayToken();
-  let response;
+async function call(operation) {
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw connectionError();
-  }
-
-  if (response.status === 401) {
-    cachedToken = null;
-    throw new Error(
-      "Gateway unauthorized (401). The stored token is wrong or stale.",
-    );
-  }
-
-  if (!response.ok || !response.body) {
-    throw new Error(`API request failed: ${response.status}`);
-  }
-
-  const reader = response.body
-    .pipeThrough(new TextDecoderStream())
-    .getReader();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += value;
-
-    buffer = buffer.replace(/\r\n/g, "\n");
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? "";
-
-    for (const rawEvent of events) {
-      const event = rawEvent.trim();
-      if (!event.startsWith("data: ")) continue;
-      try {
-        yield JSON.parse(event.slice(6).trim());
-      } catch {
-        // Skip unparseable heartbeat or malformed chunk.
-      }
-    }
-  }
-
-  const trailing = buffer.replace(/\r\n/g, "\n").trim();
-  if (trailing.startsWith("data: ")) {
-    try {
-      yield JSON.parse(trailing.slice(6).trim());
-    } catch {
-      // Ignore
-    }
+    return await operation();
+  } catch (error) {
+    throw normalize(error);
   }
 }
 
 async function health() {
   // Public probe (no token): liveness AND readiness. True = serving.
-  const root = BASE_URL.split("/api")[0];
   try {
-    const response = await fetch(`${root}/health`);
-    return response.ok;
+    const result = await client.health();
+    return result?.status !== "error";
   } catch {
     return false;
   }
 }
 
 export function isConnectionError(error) {
-  return String(error?.message ?? "").startsWith("Cannot reach the gateway");
+  return (
+    isGatewayConnectionError(error) ||
+    String(error?.message ?? "").startsWith("Cannot reach the gateway")
+  );
 }
 
 export const api = {
   health,
-  listSessions: () => request("/session/list-session"),
-  getConversation: (sessionId) => request(`/session/${sessionId}`),
-  getSessionInfo: (sessionId) => request(`/session/info/${sessionId}`),
-  createSession: (prompt) =>
-    request("/session/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    }),
+  listSessions: () => call(() => client.listSessions()),
+  getConversation: (sessionId, options = {}) =>
+    call(() => client.getConversation(sessionId, options)),
+  listTurns: (sessionId, options = {}) =>
+    call(() => client.listTurns(sessionId, options)),
+  getSessionInfo: (sessionId) =>
+    call(() => client.getSessionInfo(sessionId)),
+  createSession: (input) => call(() => client.createSession(input)),
   renameSession: (sessionId, name) =>
-    request(`/session/${sessionId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    }),
+    call(() => client.renameSession(sessionId, name)),
+  updateSession: (sessionId, changes) =>
+    call(() => client.updateSession(sessionId, changes)),
+  setSessionModel: (sessionId, model) =>
+    call(() => client.setSessionModel(sessionId, model)),
   deleteSession: (sessionId) =>
-    request(`/session/${sessionId}`, { method: "DELETE" }),
-  getSettings: () => request("/settings/"),
-  listProviders: () => request("/settings/providers"),
-  updateModel: (model) =>
-    request("/settings/", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model }),
-    }),
+    call(() => client.deleteSession(sessionId)),
+  getSettings: () => call(() => client.getSettings()),
+  listProviders: () => call(() => client.listProviders()),
+  updateModel: (model) => call(() => client.updateModel(model)),
   updateProviderKeys: (providerKeys) =>
-    request("/settings/", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider_keys: providerKeys }),
-    }),
-  streamAgent: (payload) => sse("/agent", payload),
+    call(() => client.updateProviderKeys(providerKeys)),
+  async *streamAgent(payload) {
+    try {
+      yield* client.streamAgent(payload);
+    } catch (error) {
+      throw normalize(error);
+    }
+  },
 };

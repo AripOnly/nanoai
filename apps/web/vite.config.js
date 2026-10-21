@@ -12,6 +12,8 @@ export default defineConfig({
     alias: {
       // Protocol constants shared with the gateway and the CLI (one source).
       "#src": path.resolve(__dirname, "../../src"),
+      // Shared HTTP + SSE client used by the CLI and the browser.
+      "#client": path.resolve(__dirname, "../client/index.js"),
     },
   },
 });

@@ -165,9 +165,11 @@ describe("runtime runTurn", () => {
 
     assert.deepEqual(
       events.map((event) => event.role),
-      [EVENT.ASSISTANT, EVENT.TOKEN],
+      [EVENT.TURN_START, EVENT.ASSISTANT, EVENT.TOKEN],
     );
-    assert.equal(events[0].content.text, "hello");
+    assert.equal(events[0].content.session_id, SESSION_ID);
+    assert.equal(events[0].content.replayed, false);
+    assert.equal(events[1].content.text, "hello");
     assert.equal(session.state.began, 1);
     assert.equal(session.state.recovered, 1);
     assert.equal(session.state.autoNamed, "hi");
@@ -233,9 +235,11 @@ describe("runtime runTurn", () => {
       }),
     );
 
-    assert.equal(events.length, 1);
-    assert.equal(events[0].role, EVENT.ERROR);
-    assert.match(events[0].content.message, /No API key configured/);
+    assert.deepEqual(
+      events.map((event) => event.role),
+      [EVENT.TURN_START, EVENT.ERROR],
+    );
+    assert.match(events[1].content.message, /No API key configured/);
     assert.equal(provider.calls.request.length, 0);
     assert.equal(session.state.busy, false);
     assert.equal(session.state.commits.length, 1);
@@ -385,9 +389,11 @@ describe("runtime runTurn", () => {
     );
 
     assert.equal(provider.calls.request.length, 1);
-    assert.equal(events.length, 1);
-    assert.equal(events[0].role, EVENT.ERROR);
-    assert.match(events[0].content.message, /summary engine down/);
+    assert.deepEqual(
+      events.map((event) => event.role),
+      [EVENT.TURN_START, EVENT.ERROR],
+    );
+    assert.match(events[1].content.message, /summary engine down/);
     assert.equal(session.state.busy, false);
     assert.equal(session.state.commits.length, 1);
   });
