@@ -12,7 +12,7 @@ import { writeWord } from "../../src/tools/write/word.js";
 import { writeExcel } from "../../src/tools/write/excel.js";
 import { read } from "../../src/tools/read/read.js";
 import { readSpreadsheet } from "../../src/tools/read/excel.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 
 function scratchDir() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nano-write-"));

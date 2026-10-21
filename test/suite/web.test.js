@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { webSearch } from "../../src/tools/web/search.js";
 import { webFetch, fetchUrl, assertPublicUrl } from "../../src/tools/web/fetch.js";
 import { parseMcpResponse, selectProvider } from "../../src/tools/web/mcp.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 import http from "node:http";
 
 describe("webSearch validation", () => {

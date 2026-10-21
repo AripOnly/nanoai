@@ -5,16 +5,30 @@
 // last turn is reused. Every lifecycle call is recorded so tests can assert on
 // the exact request (model, input, tools, signal) and on feed/dispose calls.
 //
-// The current provider contract is { request, feed }. The Revisi 2 contract
-// adds configure/continue/dispose; those are present here too so the same
-// helper survives the migration without changing every test.
+// The Revisi 2 provider contract is
+// { configure, request, continue, dispose }. feed() remains as a legacy alias
+// so characterization tests can keep exercising the old call shape.
 
 import { EVENT } from "#src/shared/event-type.js";
 
 export const FAKE_MODEL = Object.freeze({
+  provider: "fake",
   id: "fake-model",
   name: "Fake Model",
-  context: 128_000,
+  wire: "fake-wire",
+  contextWindow: 128_000,
+  maxOutputTokens: 8_192,
+  capabilities: Object.freeze({
+    streaming: true,
+    toolCalling: true,
+    parallelToolCalls: true,
+    reasoning: true,
+    vision: false,
+    pdf: false,
+    audio: false,
+    structuredOutput: true,
+  }),
+  status: "active",
 });
 
 export const FAKE_MODELS = Object.freeze([FAKE_MODEL]);
@@ -84,13 +98,13 @@ export function toolTurn({ call_id, name, arguments: args, signature } = {}) {
  *
  * @param {object} [options]
  * @param {string} [options.id] provider id (default "fake")
- * @param {Array<object>} [options.models] model catalog entries
+ * @param {string[]} [options.supportedWires] wires the adapter claims
  * @param {Array<Array<object|Function>>} [options.turns] scripted turns
- * @returns {object} provider with request/feed/continue/configure/dispose
+ * @returns {object} provider with the Revisi 2 contract
  */
 export function createFakeProvider({
   id = "fake",
-  models = FAKE_MODELS,
+  supportedWires = ["fake-wire"],
   turns = [textTurn("fake response")],
 } = {}) {
   if (!Array.isArray(turns) || turns.length === 0) {
@@ -110,7 +124,7 @@ export function createFakeProvider({
 
   const provider = {
     id,
-    models,
+    supportedWires: Object.freeze([...supportedWires]),
     calls,
     get config() {
       return config;

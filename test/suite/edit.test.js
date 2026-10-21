@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { edit, replace } from "../../src/tools/edit.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 
 let counter = 0;
 

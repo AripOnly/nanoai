@@ -13,7 +13,7 @@ export {
   formatBytes,
   loadAttachment,
   saveAttachment,
-} from "./attachments.js";
+} from "#src/infra/attachments.js";
 export { limits, preview, tail, truncateOutput, writeTruncation } from "./truncate.js";
 export { rgGlob, rgGrep, resolveRgBinary, runRg } from "./rg.js";
 export {

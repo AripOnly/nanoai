@@ -15,7 +15,7 @@ import {
   hasAgent,
   listAgentNames,
 } from "../../src/agents/index.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 import { shell } from "../../src/tools/shell/shell.js";
 import { resolveWorkspacePath } from "../../src/tools/shared/workspace.js";
 
@@ -51,7 +51,7 @@ describe("public agent roster and policy", () => {
     assert.equal(plan.policy.allowWrite, false);
     assert.ok(plan.policy.maxSteps > 0);
     assert.ok(
-      !plan.tools.some((tool) => tool.name === "shell"),
+      !plan.tools.includes("shell"),
       "read-only agent must not advertise shell",
     );
 

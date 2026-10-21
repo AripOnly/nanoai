@@ -3,10 +3,11 @@
 // See: ARCHITECTURE.md + .opencode/plan/nanoai-modular-monolith.md
 //
 // Rules enforced here:
-// 1. Cross-folder imports inside src/ use the #src alias (one exception:
-//    llm/registry.js reading the root-level model catalog).
+// 1. Cross-folder imports inside src/ use the #src alias.
 // 2. Sibling tool families never import each other directly — shared code
-//    lives in tools/shared/ and is reached through its barrel.
+//    lives in tools/shared/ and is reached through its barrel. The root-level
+//    manifest/composition files (tools.js, registry.js, executor.js,
+//    contract.js) are the deliberate exception: they compose every family.
 // 3. Nobody outside src/llm/ reaches into llm/providers/* — providers are
 //    used through the registry window (getProvider / llm.js) only.
 // 4. apps/ and bin/ may only touch src/shared/* and src/config/*, always
@@ -15,6 +16,9 @@
 // 6. gateway/ (the HTTP door) reaches src/ only through module doors:
 //    providers via src/llm/registry.js, sessions via src/session/index.js,
 //    agents via src/agents/index.js — never their internals.
+// 7. Fase 2 core boundaries: the agent loop is pure (no settings, session,
+//    provider registry, or tool implementation imports); model metadata has no
+//    SDK/settings edge; provider adapters never read settings.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -55,15 +59,13 @@ function resolveSpec(file, spec) {
 }
 
 describe("import contracts", () => {
-  it("uses #src alias for cross-folder imports (single documented exception)", async () => {
+  it("uses #src alias for cross-folder imports", async () => {
     const offenders = [];
     for (const file of collect(SRC)) {
       for (const spec of importsOf(file)) {
         if (!spec.startsWith("../") && !spec.startsWith("../../")) continue;
         const relative = path.relative(SRC, file);
-        // Root-level model catalog: the only legitimate escape above src/.
-        const allowed = relative === path.join("llm", "registry.js") && spec === "../../config/models.json";
-        if (!allowed) offenders.push(`${relative} -> ${spec}`);
+        offenders.push(`${relative} -> ${spec}`);
       }
     }
     assert.deepEqual(offenders, [], `parent-relative imports outside the alias:\n${offenders.join("\n")}`);
@@ -71,16 +73,21 @@ describe("import contracts", () => {
 
   it("has no sibling tool imports (shared/ owns shared code)", () => {
     const offenders = [];
-    const registry = path.join(TOOLS, "tools.js");
+    const composition = new Set([
+      "tools.js",
+      "registry.js",
+      "executor.js",
+      "contract.js",
+    ]);
     for (const file of collect(TOOLS)) {
       const rel = path.relative(TOOLS, file);
       // Family = first folder under tools/, or the file itself for the
       // root-level single-module tools (edit.js, glob.js, grep.js).
       const familyOf = (r) => (r.includes(path.sep) ? r.split(path.sep)[0] : r);
       const family = familyOf(rel);
-      // The tools registry composes every family, and shared/ is the owner
-      // of cross-family code — both are exempt as importers.
-      if (file === registry || family === "shared") continue;
+      // Root composition files wire every family, and shared/ owns cross-
+      // family code — both are exempt as importers.
+      if (composition.has(rel) || family === "shared") continue;
       for (const spec of importsOf(file)) {
         const target = resolveSpec(file, spec);
         if (!target) continue;
@@ -166,6 +173,10 @@ describe("gateway import contracts", () => {
     const AGENTS_DOOR = path.join(AGENTS_DIR, "index.js");
     const SESSION_DIR = path.join(SRC, "session");
     const SESSION_DOOR = path.join(SESSION_DIR, "index.js");
+    const MODELS_DIR = path.join(SRC, "models");
+    const MODELS_DOOR = path.join(MODELS_DIR, "index.js");
+    const RUNTIME_DIR = path.join(SRC, "runtime");
+    const RUNTIME_DOOR = path.join(RUNTIME_DIR, "index.js");
     for (const file of collect(GATEWAY)) {
       const rel = path.relative(ROOT, file);
       for (const spec of importsOf(file)) {
@@ -181,6 +192,14 @@ describe("gateway import contracts", () => {
         }
         if (target.startsWith(AGENTS_DIR + path.sep) && target !== AGENTS_DOOR) {
           offenders.push(`${rel} reaches into agent internals (${spec}) — use src/agents/index.js`);
+          continue;
+        }
+        if (target.startsWith(MODELS_DIR + path.sep) && target !== MODELS_DOOR) {
+          offenders.push(`${rel} reaches into model internals (${spec}) — use src/models/index.js`);
+          continue;
+        }
+        if (target.startsWith(RUNTIME_DIR + path.sep) && target !== RUNTIME_DOOR) {
+          offenders.push(`${rel} reaches into runtime internals (${spec}) — use src/runtime/index.js`);
         }
       }
     }
@@ -200,7 +219,15 @@ describe("gateway import contracts", () => {
       "renameSession",
       "deleteSession",
       "recoverInterruptedTurns",
+      "recoverInterruptedTurn",
       "isSessionBusy",
+      "beginTurn",
+      "recordEvent",
+      "commitTurn",
+      "getSummary",
+      "compactSession",
+      "pruneConversation",
+      "autoNameSession",
     ]) {
       assert.equal(typeof door[name], "function", `door must export ${name}`);
     }
@@ -210,27 +237,36 @@ describe("gateway import contracts", () => {
       [
         "STORAGE_DIR",
         "SessionBusyError",
+        "autoNameSession",
+        "beginTurn",
         "closeDatabase",
+        "commitTurn",
+        "compactSession",
         "createSession",
         "deleteSession",
         "getConversation",
         "getSession",
         "getSessionInfo",
+        "getSummary",
         "isSessionBusy",
         "listSessions",
         "ping",
+        "pruneConversation",
+        "recordEvent",
+        "recoverInterruptedTurn",
         "recoverInterruptedTurns",
         "renameSession",
       ],
     );
   });
 
-  it("keeps the agents door minimal (run + public roster)", async () => {
+  it("keeps the agents door a public roster (turns live in runtime)", async () => {
     const door = await import("../../src/agents/index.js");
-    assert.equal(typeof door.agent, "function");
+    assert.equal(door.agent, undefined, "turn execution belongs to src/runtime");
     assert.equal(typeof door.getAgent, "function");
     assert.equal(typeof door.hasAgent, "function");
     assert.equal(typeof door.listAgentNames, "function");
+    assert.equal(typeof door.toolNamesFor, "function");
     assert.ok(door.listAgentNames().includes("nano"));
     assert.equal(door.hasAgent("raksasa"), false);
     assert.equal(
@@ -239,5 +275,126 @@ describe("gateway import contracts", () => {
       "internal subagents must not be publicly addressable",
     );
     assert.equal(door.getAgent("plan").mode, "primary");
+  });
+});
+
+describe("Fase 2 core boundaries", () => {
+  it("keeps the agent loop free of settings, session, provider, and tool imports", () => {
+    const file = path.join(SRC, "agents", "agent-loop.js");
+    const specs = importsOf(file);
+    for (const spec of specs) {
+      assert.ok(
+        spec.startsWith("#src/shared/"),
+        `agent-loop.js may only depend on shared contracts, found ${spec}`,
+      );
+    }
+  });
+
+  it("keeps every src/agents module free of settings, session, tools, providers, and runtime", () => {
+    const offenders = [];
+    const AGENTS = path.join(SRC, "agents");
+    const forbidden = [
+      "#src/config",
+      "#src/session",
+      "#src/tools",
+      "#src/llm",
+      "#src/runtime",
+      "@google/",
+      "openai",
+      "@anthropic",
+    ];
+    for (const file of collect(AGENTS)) {
+      for (const spec of importsOf(file)) {
+        if (forbidden.some((prefix) => spec.startsWith(prefix))) {
+          offenders.push(`${path.relative(SRC, file)} -> ${spec}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join("\n"));
+  });
+
+  it("keeps tools free of agents, sessions, runtime, and provider internals", () => {
+    const offenders = [];
+    for (const file of collect(TOOLS)) {
+      for (const spec of importsOf(file)) {
+        if (
+          spec.startsWith("#src/agents") ||
+          spec.startsWith("#src/session") ||
+          spec.startsWith("#src/runtime") ||
+          spec.startsWith("#src/llm/providers")
+        ) {
+          offenders.push(`${path.relative(SRC, file)} -> ${spec}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join("\n"));
+  });
+
+  it("keeps src/llm free of agents, sessions, runtime, and tools", () => {
+    const offenders = [];
+    const LLM = path.join(SRC, "llm");
+    for (const file of collect(LLM)) {
+      for (const spec of importsOf(file)) {
+        if (
+          spec.startsWith("#src/agents") ||
+          spec.startsWith("#src/session") ||
+          spec.startsWith("#src/runtime") ||
+          spec.startsWith("#src/tools")
+        ) {
+          offenders.push(`${path.relative(SRC, file)} -> ${spec}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join("\n"));
+  });
+
+  it("keeps model metadata free of SDKs, settings, sessions, agents, and tools", () => {
+    const offenders = [];
+    const MODELS = path.join(SRC, "models");
+    for (const file of collect(MODELS)) {
+      for (const spec of importsOf(file)) {
+        const forbidden =
+          spec.startsWith("@google/") ||
+          spec.startsWith("@anthropic") ||
+          spec === "openai" ||
+          spec.startsWith("#src/config") ||
+          spec.startsWith("#src/session") ||
+          spec.startsWith("#src/agents") ||
+          spec.startsWith("#src/tools") ||
+          spec.startsWith("#src/llm");
+        if (forbidden) {
+          offenders.push(`${path.relative(SRC, file)} -> ${spec}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join("\n"));
+  });
+
+  it("keeps provider adapters settings-free", () => {
+    const offenders = [];
+    for (const file of collect(PROVIDERS)) {
+      for (const spec of importsOf(file)) {
+        if (
+          spec.startsWith("#src/config") ||
+          spec.startsWith("#src/session") ||
+          spec.startsWith("#src/models")
+        ) {
+          offenders.push(`${path.relative(SRC, file)} -> ${spec}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join("\n"));
+  });
+
+  it("keeps the provider registry model-free", async () => {
+    const registry = await import("../../src/llm/registry.js");
+    const google = registry.getProvider("google");
+    assert.equal(google.models, undefined);
+    assert.deepEqual(google.supportedWires, ["google-interactions"]);
+    const specs = importsOf(path.join(SRC, "llm", "registry.js"));
+    assert.ok(
+      !specs.some((spec) => spec.includes("models.json") || spec.includes("/models/")),
+      "provider registry must not import model metadata",
+    );
   });
 });

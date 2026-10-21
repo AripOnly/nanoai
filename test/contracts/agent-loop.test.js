@@ -7,7 +7,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { agentLoop } from "../../src/agents/agent-loop.js";
-import { registerProvider } from "../../src/llm/registry.js";
 import { EVENT } from "../../src/shared/event-type.js";
 import {
   assistant,
@@ -32,6 +31,7 @@ function request(overrides = {}) {
       maxToolCallsPerStep: 8,
       maxToolConcurrency: 2,
     },
+    executeTool: async () => ({ success: true, output: "ok" }),
     ...overrides,
   };
 }
@@ -48,12 +48,11 @@ describe("agent loop bounds", () => {
       id: PROVIDER,
       turns: [textTurn("must not run")],
     });
-    registerProvider(PROVIDER, provider);
     const controller = new AbortController();
     controller.abort();
 
     const events = await collect(
-      agentLoop(request({ signal: controller.signal })),
+      agentLoop(request({ provider, signal: controller.signal })),
     );
 
     assert.deepEqual(events, []);
@@ -74,10 +73,9 @@ describe("agent loop bounds", () => {
         ],
       ],
     });
-    registerProvider(PROVIDER, provider);
 
     const events = await collect(
-      agentLoop(request({ signal: controller.signal })),
+      agentLoop(request({ provider, signal: controller.signal })),
     );
 
     assert.equal(provider.calls.request[0].signal, controller.signal);
@@ -103,7 +101,6 @@ describe("agent loop bounds", () => {
         textTurn("done"),
       ],
     });
-    registerProvider(PROVIDER, provider);
 
     let active = 0;
     let maxActive = 0;
@@ -111,6 +108,7 @@ describe("agent loop bounds", () => {
     const events = await collect(
       agentLoop(
         request({
+          provider,
           executeTool: async () => {
             active += 1;
             maxActive = Math.max(maxActive, active);
@@ -142,12 +140,12 @@ describe("agent loop bounds", () => {
         textTurn("done"),
       ],
     });
-    registerProvider(PROVIDER, provider);
 
     const executed = [];
     const events = await collect(
       agentLoop(
         request({
+          provider,
           policy: {
             maxSteps: 2,
             maxToolCallsPerStep: 2,
@@ -174,12 +172,12 @@ describe("agent loop bounds", () => {
       id: PROVIDER,
       turns: [toolTurn({ name: "read", arguments: { path: "unused" } })],
     });
-    registerProvider(PROVIDER, provider);
 
     let executed = 0;
     const events = await collect(
       agentLoop(
         request({
+          provider,
           policy: {
             maxSteps: 2,
             maxToolCallsPerStep: 4,

@@ -1,13 +1,14 @@
 // test/suite/agent.test.js
-// Offline: unknown-agent and bad-argument paths throw before any LLM call.
-// checkCompaction only reads settings. Temp sessions are deleted afterwards.
+// Offline: unknown-agent and bad-argument paths fail before any LLM call.
+// shouldCompact is a pure threshold check. Temp sessions are deleted after.
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { agent } from "../../src/agents/agent.js";
+import { runTurn } from "../../src/runtime/turn.js";
+import { shouldCompact } from "../../src/runtime/compaction.js";
+import * as sessionDoor from "../../src/session/index.js";
 import { agentService } from "../../gateway/service/agent-service.js";
 import { ResponseError } from "../../gateway/error/response-error.js";
-import { checkCompaction } from "../../src/agents/compaction.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 import { sessionStore } from "../../src/session/session-store.js";
 
 const IDS = [];
@@ -22,17 +23,34 @@ after(() => {
   }
 });
 
+function deps() {
+  return {
+    session: sessionDoor,
+    getConfig: () => ({
+      model: "google/gemini-3.1-flash-lite",
+      username: "tester",
+      compaction: { ratio: 85, keep_turn: 2 },
+    }),
+    getCatalog: () => null,
+    resolveModel: async () => {
+      throw new Error("model resolution must not run for an unknown agent");
+    },
+    logger: { warn() {}, error() {} },
+  };
+}
+
 describe("agent entry guards", () => {
   it("rejects unknown agents with the available list", async () => {
     const row = sessionStore.createSession("suite-agent", "hi");
     IDS.push(row.id);
-    // agent() converts internal failures into error events for the stream,
-    // so the guard surfaces as an event rather than a throw.
+    // runTurn converts internal failures into error events for the stream, so
+    // the guard surfaces as an event rather than a throw.
     const events = [];
-    for await (const event of agent({
+    for await (const event of runTurn({
       name: "raksasa",
       prompt: "halo",
       session_id: row.id,
+      deps: deps(),
     })) {
       events.push(event);
     }
@@ -80,18 +98,18 @@ describe("agent entry guards", () => {
   });
 });
 
-describe("checkCompaction", () => {
-  it("fires on huge tokens and stays quiet on tiny ones", async () => {
+describe("shouldCompact", () => {
+  it("fires on huge tokens and stays quiet on tiny ones", () => {
     assert.equal(
-      await checkCompaction({ provider: "google", model: "gemini-3.1-flash-lite", token: 99999999 }),
+      shouldCompact({ token: 99_999_999, contextWindow: 1_048_576, ratio: 85 }),
       true,
     );
     assert.equal(
-      await checkCompaction({ provider: "google", model: "gemini-3.1-flash-lite", token: 10 }),
+      shouldCompact({ token: 10, contextWindow: 1_048_576, ratio: 85 }),
       false,
     );
     assert.equal(
-      await checkCompaction({ provider: "google", model: "nope", token: 99999999 }),
+      shouldCompact({ token: 99_999_999, contextWindow: 0, ratio: 85 }),
       false,
     );
   });

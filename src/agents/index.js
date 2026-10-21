@@ -1,21 +1,21 @@
 // src/agents/index.js
 //
-// The module door. Outer layers (gateway, future channels) reach agents ONLY
-// through this file: run a turn with agent(), or inspect the public roster
-// with getAgent()/hasAgent()/listAgentNames(). Internal files (agent-loop,
-// tool-execute, registry, compaction) stay private to the module.
+// The module door. Outer layers (gateway, future channels) reach agent
+// definitions ONLY through this file: inspect the public roster with
+// getAgent()/hasAgent()/listAgentNames(). Running a turn belongs to
+// src/runtime/, which imports this door plus the contracts in
+// src/llm/provider-contract.js and src/tools/.
 //
 // Only mode "primary" agents are public. Internal subagents such as
 // "compaction" stay reachable inside the module but cannot be invoked through
 // the gateway or any other outer door.
 
-import { agent } from "./agent.js";
 import {
   getPrimaryAgent,
   listPrimaryAgentNames,
 } from "./registry.js";
 
-export { agent };
+export { toolNamesFor } from "./registry.js";
 
 /** Public agent definition + policy, or undefined for unknown/subagents. */
 export function getAgent(name) {

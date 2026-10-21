@@ -6,14 +6,14 @@
 // can still answer with a plain HTTP error) and returns the event stream to
 // consume. The stream wrapper maps a race-time SessionBusyError to 409 too.
 
-import { agent, hasAgent, listAgentNames } from "../../src/agents/index.js";
+import { hasAgent, listAgentNames } from "../../src/agents/index.js";
 import {
   isSessionBusy,
   SessionBusyError,
 } from "../../src/session/index.js";
 import { ResponseError } from "../error/response-error.js";
 
-export function agentService(request = {}, { signal } = {}) {
+export function agentService(request = {}, { signal, runtime } = {}) {
   const { name, prompt, session_id } = request;
 
   if (typeof prompt !== "string" || prompt.trim() === "") {
@@ -34,16 +34,20 @@ export function agentService(request = {}, { signal } = {}) {
     );
   }
 
-  return runAgent({ name, prompt, session_id, signal });
+  return runAgent({ name, prompt, session_id, signal, runtime });
 }
 
-async function* runAgent({ name, prompt, session_id, signal }) {
+async function* runAgent({ name, prompt, session_id, signal, runtime }) {
+  if (!runtime || typeof runtime.runTurn !== "function") {
+    throw new ResponseError(500, "Agent runtime is not configured.");
+  }
+
   try {
-    yield* agent({ name, prompt, session_id, signal });
+    yield* runtime.runTurn({ name, prompt, session_id, signal });
   } catch (error) {
     // The preflight above handles the normal case. This catches the tiny
     // window where two requests pass the preflight before either reserves
-    // the session; agent() rethrows SessionBusyError for exactly this path.
+    // the session; runTurn rethrows SessionBusyError for exactly this path.
     if (error instanceof SessionBusyError) {
       throw new ResponseError(409, error.message);
     }

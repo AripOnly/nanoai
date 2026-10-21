@@ -1,14 +1,13 @@
-// src/tools/shared/attachments.js
+// src/infra/attachments.js
 //
-// Shared attachment store: images and PDFs are persisted by reference under
-// the per-user data dir (~/.nanoai/attachments) and sent to the LLM exactly
-// once (see google.js).
+// Attachment storage: images and PDFs are persisted by reference under the
+// per-user data dir (~/.nanoai/attachments) and sent to the LLM exactly once
+// (see llm/attachment-expansion.js).
 // Raw bytes never enter session history, keeping the database small and
 // preventing repeat token charges on later turns.
 //
-// Lives in shared/ because three layers depend on it (read, webfetch, and
-// the LLM provider). Depending on a sibling tool folder instead (as before)
-// hid the coupling and rotted on every read-side change.
+// This is infrastructure, not a tool: read and provider adapters both depend
+// on it, so it must not live inside a tool family or behind a provider SDK.
 
 import fs from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";

@@ -3,9 +3,9 @@
 // Media sniffing for the read tool. Detection order: magic bytes first,
 // file extension second, content heuristic last.
 //
-// Attachment *storage* lives in shared/attachments.js (used by read, webfetch
-// and the LLM provider); this module only classifies bytes, so read-side
-// changes can never break other tools again.
+// Attachment *storage* lives in src/infra/attachments.js (used by read,
+// webfetch and the LLM provider); this module only classifies bytes, so
+// read-side changes can never break other tools again.
 
 import path from "node:path";
 

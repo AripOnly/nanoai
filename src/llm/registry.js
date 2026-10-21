@@ -1,72 +1,30 @@
 // src/llm/registry.js
 //
-// The single window into every LLM provider. Agents ask for a provider by id
-// and get { request, feed, models } — they never import a provider folder
-// directly, so adding or removing a provider never touches agent code.
+// The single window into every LLM provider. Agents never import a provider
+// folder directly; the runtime resolves a model through the model registry and
+// gets the configured adapter from here.
 //
-// A provider implementation must export:
-//   request({ model, instruction, input, tools, signal, sentAttachments })
-//     -> async generator yielding EVENT.* parts
-//   feed({ reasoningSignature, toolCall, toolResult }) -> EVENT.* parts
-// Models come from the root-level catalog (config/models.json); a provider
-// may also declare its own list, which must pass the same validation.
+// The registry is intentionally provider-only: it does not know model
+// metadata, credentials, endpoints, or settings. Model data lives in
+// src/models/.
 
-import * as google from "./providers/google/google.js";
-// Root-level model catalog (outside src/): the single legitimate "../"
-// escape in src. Everything else inside src/ uses the #src alias.
-import modelCatalog from "../../config/models.json" with { type: "json" };
+import { createGoogleProvider } from "./providers/google/google.js";
+import { assertProviderContract } from "./provider-contract.js";
 
-function modelsFor(provider) {
-  const list = modelCatalog[provider];
-  if (!Array.isArray(list)) {
-    return [];
-  }
-
-  for (const entry of list) {
-    const valid =
-      entry &&
-      typeof entry.id === "string" &&
-      entry.id.length > 0 &&
-      Number.isInteger(entry.context) &&
-      entry.context > 0;
-    if (!valid) {
-      throw new Error(
-        `Invalid model entry for provider "${provider}" in config/models.json. Each entry needs { id, name, context }.`,
-      );
-    }
-  }
-
-  return list;
-}
-
-function validateProvider(id, impl) {
-  if (typeof id !== "string" || id.trim() === "") {
-    throw new Error("LLM provider id must be a non-empty string.");
-  }
-  for (const key of ["request", "feed"]) {
-    if (typeof impl?.[key] !== "function") {
-      throw new Error(`LLM provider "${id}" must export ${key}(). Got: ${typeof impl?.[key]}.`);
-    }
-  }
-}
-
-// Public provider table. A plain object (not a Map) so legacy
+// Public provider table. A null-prototype object so ids such as "toString"
+// or "__proto__" cannot collide with Object.prototype. Legacy
 // `llm[provider]`, `provider in llm`, and Object.values(llm) call sites keep
-// working while new code migrates to getProvider().
-export const llm = {};
+// working.
+export const llm = Object.create(null);
 
 export function registerProvider(id, impl) {
-  validateProvider(id, impl);
-  llm[id] = {
-    request: impl.request,
-    feed: impl.feed,
-    models: Array.isArray(impl.models) ? impl.models : modelsFor(id),
-  };
+  assertProviderContract(id, impl);
+  llm[id] = impl;
   return llm[id];
 }
 
 export function getProvider(id) {
-  const provider = llm[id];
+  const provider = Object.hasOwn(llm, id) ? llm[id] : undefined;
   if (!provider) {
     const known = Object.keys(llm);
     throw new Error(
@@ -76,24 +34,21 @@ export function getProvider(id) {
   return provider;
 }
 
-export function findModel(provider, modelId) {
-  const entry = llm[provider];
-  if (!entry) {
-    return undefined;
-  }
-  return entry.models.find((model) => model.id === modelId);
-}
-
 export function listProviders() {
   return Object.keys(llm);
 }
 
 export function isKnownProvider(id) {
-  return typeof id === "string" && id in llm;
+  return typeof id === "string" && Object.hasOwn(llm, id);
 }
 
-export function isKnownModel(provider, modelId) {
-  return findModel(provider, modelId) !== undefined;
+/** Provider registry view passed to the model resolver and runtime. */
+export function getProviderRegistry() {
+  return Object.freeze({
+    get: getProvider,
+    has: isKnownProvider,
+    list: listProviders,
+  });
 }
 
-registerProvider("google", google);
+registerProvider("google", createGoogleProvider());

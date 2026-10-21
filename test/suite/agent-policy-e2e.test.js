@@ -1,17 +1,20 @@
 // test/suite/agent-policy-e2e.test.js
 //
-// End-to-end proof for the Fase 1 exit criterion: a read-only primary (plan)
-// still advertises only its own tools, and a model's invented shell call is
-// refused by the loop/tool dispatcher without executing anything.
+// End-to-end proof for the read-only agent boundary: `plan` advertises only
+// its own tools, and a model's invented shell call is refused by the tool
+// dispatcher without executing anything.
+//
+// The provider and model resolver are injected, so this test stays offline and
+// does not touch the settings file or the global provider registry.
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { agent } from "../../src/agents/agent.js";
+import { runTurn } from "../../src/runtime/turn.js";
+import * as sessionDoor from "../../src/session/index.js";
 import { sessionStore } from "../../src/session/session-store.js";
-import { registerProvider } from "../../src/llm/registry.js";
-import { settings } from "../../src/config/config.js";
 import { EVENT } from "../../src/shared/event-type.js";
 import {
+  FAKE_MODEL,
   createFakeProvider,
   textTurn,
   toolTurn,
@@ -41,17 +44,33 @@ describe("read-only agent end-to-end", () => {
         textTurn("done"),
       ],
     });
-    registerProvider("fake-policy", provider);
-    await settings.set("model", "fake-policy/fake-model");
 
     const row = sessionStore.createSession("policy-e2e", "policy");
     IDS.push(row.id);
 
+    const config = {
+      model: "fake-policy/fake-model",
+      username: "tester",
+      compaction: { ratio: 85, keep_turn: 2 },
+    };
+
     const events = [];
-    for await (const event of agent({
+    for await (const event of runTurn({
       name: "plan",
       prompt: "please run a shell command",
       session_id: row.id,
+      deps: {
+        session: sessionDoor,
+        getConfig: () => config,
+        getCatalog: () => null,
+        resolveModel: async () => ({
+          adapter: provider,
+          model: FAKE_MODEL,
+          limits: { contextWindow: FAKE_MODEL.contextWindow },
+          capabilities: FAKE_MODEL.capabilities,
+        }),
+        logger: { warn() {}, error() {} },
+      },
     })) {
       events.push(event);
     }

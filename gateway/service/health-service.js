@@ -14,6 +14,7 @@ import {
   getSnapshot,
   initSettings,
 } from "../../src/config/index.js";
+import { getCatalogSnapshot } from "../../src/models/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,8 +40,9 @@ function safeError(error) {
 }
 
 export async function buildHealth() {
-  const checks = { settings: "ok", database: "ok" };
+  const checks = { settings: "ok", models: "ok", database: "ok" };
   let snapshot = null;
+  let modelsSnapshot = null;
 
   try {
     await initSettings();
@@ -60,6 +62,19 @@ export async function buildHealth() {
   }
 
   try {
+    modelsSnapshot = getCatalogSnapshot();
+    if (!modelsSnapshot) {
+      throw new Error("model catalog snapshot is unavailable");
+    }
+    if (modelsSnapshot.lastError) {
+      checks.models = modelsSnapshot.lastError.message;
+    }
+  } catch (error) {
+    checks.models =
+      error instanceof Error ? error.message : String(error);
+  }
+
+  try {
     ping();
   } catch (error) {
     checks.database = error instanceof Error ? error.message : String(error);
@@ -75,5 +90,7 @@ export async function buildHealth() {
     settings_error: snapshot?.lastError ?? (checks.settings === "ok" ? null : checks.settings),
     settings_source: snapshot?.source ?? null,
     restart_required: snapshot?.restartRequired ?? false,
+    models_revision: modelsSnapshot?.revision ?? null,
+    models_error: modelsSnapshot?.lastError?.message ?? null,
   };
 }

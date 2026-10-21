@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { glob } from "../../src/tools/glob.js";
 import { grep } from "../../src/tools/grep.js";
 import { resolveRgBinary } from "../../src/tools/shared/rg.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { toolExecute } from "../../src/tools/executor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Absolute on purpose: relative tool paths anchor at the workspace root

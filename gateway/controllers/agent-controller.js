@@ -88,7 +88,10 @@ export function createAgentController(service = agentService) {
     res.on("close", onClose);
 
     try {
-      const stream = service(req.body ?? {}, { signal: abort.signal });
+      const stream = service(req.body ?? {}, {
+        signal: abort.signal,
+        runtime: req.app?.locals?.runtime,
+      });
       iterator = stream[Symbol.asyncIterator]();
 
       // Wait for the first event before committing to a 200 SSE response.

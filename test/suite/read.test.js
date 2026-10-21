@@ -10,8 +10,8 @@ import path from "node:path";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import XLSX from "xlsx";
 import { read } from "../../src/tools/read/read.js";
-import { loadAttachment } from "../../src/tools/shared/attachments.js";
-import { toolExecute } from "../../src/agents/tool-execute.js";
+import { loadAttachment } from "../../src/infra/attachments.js";
+import { toolExecute } from "../../src/tools/executor.js";
 
 // 1x1 transparent PNG (well-known minimal fixture).
 const TINY_PNG_BASE64 =

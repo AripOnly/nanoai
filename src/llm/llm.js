@@ -1,13 +1,13 @@
 // src/llm/llm.js
 //
-// Thin backward-compatible wrapper over ./registry.js (same folder, so a
-// relative import). New code should import { getProvider, findModel, … }
-// from "#src/llm/registry.js" — reaching into `llm[provider]` directly is
-// legacy and will warn once the second provider lands.
+// Thin backward-compatible wrapper over ./registry.js. Providers are reached
+// through getProvider(); model metadata is reached through src/models/, not
+// here.
+
 export {
-  findModel,
   getProvider,
-  isKnownModel,
+  getProviderRegistry,
+  isKnownProvider,
   listProviders,
   llm,
   registerProvider,

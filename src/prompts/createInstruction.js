@@ -1,4 +1,9 @@
-import { settings } from "#src/config/config.js";
+// src/prompts/createInstruction.js
+//
+// Instruction assembly is a pure prompt concern: callers pass the username
+// from their turn-scoped settings snapshot instead of this module reading
+// settings itself.
+
 import { getWorkEnv } from "./workEnv.js";
 import { readFile } from "fs/promises";
 import path from "path";
@@ -16,7 +21,10 @@ export async function createInstruction(name, options = {}) {
     throw new Error(`Invalid instruction name "${name}".`);
   }
 
-  const username = await settings.get("username");
+  const username =
+    typeof options?.username === "string" && options.username.trim() !== ""
+      ? options.username
+      : "your name";
 
   let insDefault;
   try {

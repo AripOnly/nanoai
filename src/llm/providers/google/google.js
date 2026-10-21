@@ -1,48 +1,51 @@
+// src/llm/providers/google/google.js
+//
+// Google (Gemini) provider adapter. The adapter owns the SDK, the credential
+// fingerprint, and the client lifecycle; it never reads settings and never
+// exposes a model catalog. Credentials and endpoint arrive through configure()
+// from the model resolver, and a rotated key recreates the client because the
+// fingerprint changed.
+
+import crypto from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
-import "dotenv/config";
 import { stream } from "./stream.js";
 import { EVENT } from "#src/shared/event-type.js";
-import { settings } from "#src/config/config.js";
 import { toStr } from "#src/utils/tostr.js";
 import { expandAttachments } from "#src/llm/attachment-expansion.js";
 
-async function getClient() {
-  // Built per request on purpose: no cached credentials, so a rotated API
-  // key takes effect immediately without restarting the gateway.
-  let providerKeys = {};
-  try {
-    const stored = await settings.get("provider_keys");
-    if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-      providerKeys = stored;
-    }
-  } catch {
-    providerKeys = {};
-  }
+const WIRE = "google-interactions";
 
-  // Per-provider keys take precedence; the legacy top-level api_key stays
-  // as a fallback so existing setups keep working.
-  const apiKey =
-    (typeof providerKeys.google === "string" && providerKeys.google) ||
-    (await settings.get("api_key"));
-  if (!apiKey) {
-    throw new Error("API key not configured. Run setup first.");
+function fingerprint(apiKey, endpoint) {
+  return crypto
+    .createHash("sha256")
+    .update(`${apiKey}\n${endpoint ?? ""}`)
+    .digest("hex");
+}
+
+function modelId(model) {
+  if (model && typeof model === "object") {
+    return model.id ?? model.modelId;
   }
-  return new GoogleGenAI({ apiKey });
+  return model;
 }
 
 function toGemini(part) {
   const role = part.role ?? "text";
 
-  if (role === EVENT.TOKEN || role === EVENT.ERROR || role === EVENT.COMPACTION || role === EVENT.TOOL_UPDATE)
+  if (
+    role === EVENT.TOKEN ||
+    role === EVENT.ERROR ||
+    role === EVENT.COMPACTION ||
+    role === EVENT.TOOL_UPDATE
+  ) {
     return null;
+  }
 
   if (role === EVENT.REASONING_SIGNATURE) {
-    const thought = {
+    return {
       type: "thought",
       signature: part.content.signature,
     };
-
-    return thought;
   }
 
   if (role === EVENT.TOOL_CALL) {
@@ -88,75 +91,142 @@ function toGemini(part) {
       content: [{ type: "text", text: part.content.text }],
     };
   }
+
+  return null;
 }
 
-export async function* request(request) {
-  try {
-    const client = await getClient();
+function errorMessage(err) {
+  let message = err?.message;
 
-    const input = (await expandAttachments(request.input, request.sentAttachments))
-      .map(toGemini)
-      .filter((part) => part != null);
+  if (err?.body) {
+    try {
+      const data = err.body
+        .split("\n")
+        .find((line) => line.startsWith("data: "))
+        ?.slice(6);
 
-    const body = {
-      model: request.model,
-      input: input,
-      system_instruction: request.instruction,
-      tools: request.tools,
-      store: false,
-      stream: true,
-      generation_config: {
-        temperature: 1.0,
-        thinking_summaries: "auto",
-      },
-    };
-
-    const llmStream = await client.interactions.create(body, {
-      fetchOptions: { signal: request.signal },
-    });
-
-    yield* stream(llmStream);
-  } catch (err) {
-    if (
-      err.name === "AbortError" ||
-      err.code === 20 ||
-      err.message?.includes("aborted")
-    ) {
-      return;
-    }
-    let message = err.message;
-
-    if (err.body) {
-      try {
-        const data = err.body
-          .split("\n")
-          .find((line) => line.startsWith("data: "))
-          ?.slice(6);
-
-        if (data) {
-          message = JSON.parse(data).error.message;
-        }
-      } catch {
-        err.message;
+      if (data) {
+        message = JSON.parse(data).error.message;
       }
+    } catch {
+      // Keep the original error message.
     }
-
-    const errMsg = String(err?.message ?? err ?? "");
-    const formatted =
-      message && !errMsg.includes(message)
-        ? `${errMsg}\n${message}`
-        : (message || errMsg || "Google provider error");
-
-    yield {
-      role: EVENT.ERROR,
-      content: {
-        message: formatted,
-      },
-    };
   }
+
+  const errMsg = String(err?.message ?? err ?? "");
+  return message && !errMsg.includes(message)
+    ? `${errMsg}\n${message}`
+    : message || errMsg || "Google provider error";
 }
 
-export function feed({ reasoningSignature, toolCall, toolResult }) {
+export function createGoogleProvider() {
+  let client = null;
+  let clientFingerprint = null;
+
+  const provider = {
+    id: "google",
+    supportedWires: Object.freeze([WIRE]),
+
+    /**
+     * Configure the adapter for one credential/endpoint pair. Idempotent:
+     * the SDK client is recreated only when the fingerprint changes.
+     */
+    configure({ credentials, endpoint = null } = {}) {
+      const apiKey =
+        typeof credentials === "string"
+          ? credentials
+          : credentials?.apiKey ?? credentials?.api_key;
+
+      if (typeof apiKey !== "string" || apiKey.trim() === "") {
+        throw new Error("Google provider requires an API key.");
+      }
+
+      const next = fingerprint(apiKey, endpoint);
+      if (client && clientFingerprint === next) {
+        return provider;
+      }
+
+      client = new GoogleGenAI({
+        apiKey,
+        ...(endpoint ? { httpOptions: { baseUrl: endpoint } } : {}),
+      });
+      clientFingerprint = next;
+      return provider;
+    },
+
+    async *request(request) {
+      try {
+        if (!client) {
+          throw new Error("Google provider is not configured.");
+        }
+
+        const input = (
+          await expandAttachments(request.input, request.sentAttachments)
+        )
+          .map(toGemini)
+          .filter((part) => part != null);
+
+        const body = {
+          model: modelId(request.model),
+          input,
+          system_instruction: request.instruction,
+          tools: request.tools,
+          store: false,
+          stream: true,
+          generation_config: {
+            temperature: 1.0,
+            thinking_summaries: "auto",
+          },
+        };
+
+        const llmStream = await client.interactions.create(body, {
+          fetchOptions: { signal: request.signal },
+        });
+
+        yield* stream(llmStream);
+      } catch (err) {
+        if (
+          err?.name === "AbortError" ||
+          err?.code === 20 ||
+          err?.message?.includes("aborted")
+        ) {
+          return;
+        }
+
+        yield {
+          role: EVENT.ERROR,
+          content: {
+            code: "PROVIDER_ERROR",
+            retryable: false,
+            message: errorMessage(err),
+          },
+        };
+      }
+    },
+
+    /**
+     * Keep provider-specific history parts the adapter needs on the next
+     * request. `continue` is the Revisi 2 name; `feed` stays as an alias while
+     * older call sites migrate.
+     */
+    continue(context) {
+      return continuationParts(context);
+    },
+
+    feed(context) {
+      return continuationParts(context);
+    },
+
+    dispose() {
+      client = null;
+      clientFingerprint = null;
+    },
+  };
+
+  return provider;
+}
+
+function continuationParts({ reasoningSignature, toolCall, toolResult }) {
   const parts = [];
 
   if (reasoningSignature) {
@@ -193,8 +263,11 @@ export function feed({ reasoningSignature, toolCall, toolResult }) {
     // attachment references ride alongside and are expanded to bytes exactly
     // once at send time (see expandAttachments).
     const raw = toolResult[i];
-    const text = typeof raw === "string" ? raw : (raw?.output ?? raw?.error ?? toStr(raw));
-    const attachments = Array.isArray(raw?.attachments) ? raw.attachments : [];
+    const text =
+      typeof raw === "string" ? raw : raw?.output ?? raw?.error ?? toStr(raw);
+    const attachments = Array.isArray(raw?.attachments)
+      ? raw.attachments
+      : [];
     const functionResult = {
       role: EVENT.TOOL_RESULT,
       content: {

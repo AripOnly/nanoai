@@ -6,12 +6,12 @@
 //
 // History keeps only small attachment references; bytes are loaded from disk
 // at send time and marked sent so later turns never pay for them again.
-// NOTE: loadAttachment lives in tools/shared (attachment storage). This is
-// the one deliberate llm → tools lane; storage itself stays in tools.
+// Storage is infrastructure (src/infra/attachments.js), keeping the provider
+// layer free of tool imports.
 
 import { EVENT } from "#src/shared/event-type.js";
 import { toStr } from "#src/utils/tostr.js";
-import { loadAttachment } from "#src/tools/shared/attachments.js";
+import { loadAttachment } from "#src/infra/attachments.js";
 
 /**
  * Collect attachment ids already present in history so they are never

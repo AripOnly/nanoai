@@ -1,38 +1,36 @@
 // src/tools/tools.js
+//
+// Legacy facade over the single tool manifest in registry.js. New code should
+// import toolRegistry (schemas + capabilities) or executeTool (policy
+// dispatch) directly; this file remains for older call sites that still use
+// the `tools` / `schema` lookup objects.
 
-import { read, readTool } from "./read/read.js";
-import { write, writeTool } from "./write/write.js";
-import { writeWord, wordTool } from "./write/word.js";
-import { writeExcel, excelTool } from "./write/excel.js";
-import { edit, editTool } from "./edit.js";
-import { webSearch, webSearchTool } from "./web/search.js";
-import { webFetch, webFetchTool } from "./web/fetch.js";
-import { shell, shellTool } from "./shell/shell.js";
-import { glob, globTool } from "./glob.js";
-import { grep, grepTool } from "./grep.js";
+import { toolRegistry } from "./registry.js";
 
-export const tools = {
-  read,
-  write,
-  writeWord,
-  writeExcel,
-  edit,
-  shell,
-  glob,
-  grep,
-  webSearch,
-  webFetch,
-};
+const SCHEMA_KEYS = Object.freeze({
+  read: "readTool",
+  write: "writeTool",
+  writeWord: "wordTool",
+  writeExcel: "excelTool",
+  edit: "editTool",
+  shell: "shellTool",
+  glob: "globTool",
+  grep: "grepTool",
+  webSearch: "webSearchTool",
+  webFetch: "webFetchTool",
+});
 
-export const schema = {
-  readTool,
-  writeTool,
-  wordTool,
-  excelTool,
-  editTool,
-  shellTool,
-  globTool,
-  grepTool,
-  webSearchTool,
-  webFetchTool,
-};
+export const tools = Object.freeze(
+  Object.fromEntries(
+    toolRegistry.list().map((definition) => [definition.name, definition.execute]),
+  ),
+);
+
+export const schema = Object.freeze(
+  Object.fromEntries(
+    toolRegistry
+      .list()
+      .map((definition) => [SCHEMA_KEYS[definition.name], definition.schema])
+      .filter(([key]) => typeof key === "string"),
+  ),
+);

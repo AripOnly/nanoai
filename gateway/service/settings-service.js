@@ -14,11 +14,15 @@ import {
   settings,
 } from "../../src/config/index.js";
 import {
-  getProvider,
-  isKnownModel,
   isKnownProvider,
   listProviders as providerIds,
 } from "../../src/llm/registry.js";
+import {
+  findModel as findCatalogModel,
+  getCatalogSnapshot,
+  getModelRegistry as getModelRegistryView,
+  parseModelRef,
+} from "../../src/models/index.js";
 import { isGatewayTokenEnvLocked } from "../auth/token.js";
 
 const SECRET_KEYS = ["api_key", "serper_api_key", "gateway_token"];
@@ -93,26 +97,27 @@ function validateModel(value) {
     throw new ResponseError(400, "model must be a non-empty string");
   }
 
-  const [provider, model] = value.split("/");
-
-  if (!provider || !model || value.split("/").length !== 2) {
+  let ref;
+  try {
+    ref = parseModelRef(value);
+  } catch {
     throw new ResponseError(
       400,
       'model must use the "provider/model" format, e.g. "google/gemini-3.6-flash"',
     );
   }
 
-  if (!isKnownProvider(provider)) {
+  if (!isKnownProvider(ref.provider)) {
     throw new ResponseError(
       400,
-      `unknown provider "${provider}". Available: ${providerIds().join(", ")}`,
+      `unknown provider "${ref.provider}". Available: ${providerIds().join(", ")}`,
     );
   }
 
-  if (!isKnownModel(provider, model)) {
+  if (!findCatalogModel(ref.provider, ref.id)) {
     throw new ResponseError(
       400,
-      `unknown model "${model}" for provider "${provider}".`,
+      `unknown model "${ref.id}" for provider "${ref.provider}".`,
     );
   }
 
@@ -490,18 +495,83 @@ export async function updateSettings(body, options) {
   return result.data;
 }
 
+function providerEnvSuffix(provider) {
+  return String(provider)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Availability is safe metadata, never the credential itself. A model whose
+ * provider is not registered or has no key still appears in the catalog, but
+ * the UI can show it as unavailable with a stable reason.
+ */
+function availabilityFor(provider) {
+  if (!isKnownProvider(provider)) {
+    return { available: false, unavailableReason: "provider_not_registered" };
+  }
+
+  if (process.env[`NANO_${providerEnvSuffix(provider)}_API_KEY`]) {
+    return { available: true, unavailableReason: null };
+  }
+
+  const config = getSnapshot()?.value ?? {};
+  const stored = config.provider_keys?.[provider];
+  if (typeof stored === "string" && stored.trim() !== "") {
+    return { available: true, unavailableReason: null };
+  }
+
+  if (
+    provider === "google" &&
+    typeof config.api_key === "string" &&
+    config.api_key.trim() !== ""
+  ) {
+    return { available: true, unavailableReason: null };
+  }
+
+  return { available: false, unavailableReason: "credential_missing" };
+}
+
 function listProviders() {
-  return providerIds().map((provider) => {
-    const { models } = getProvider(provider);
-    return {
-      provider,
-      models: models.map((model) => ({
-        id: model.id,
-        name: model.name ?? model.id,
-        context: model.context ?? null,
-      })),
-    };
-  });
+  const registry = getModelRegistryView();
+  const known = new Set(providerIds());
+  for (const provider of registry.providers()) known.add(provider);
+
+  return [...known].map((provider) => ({
+    provider,
+    models: registry.byProvider(provider).map((model) => ({
+      id: model.id,
+      name: model.name,
+      context: model.contextWindow,
+      status: model.status,
+      capabilities: model.capabilities,
+    })),
+  }));
+}
+
+/** Catalog revision/error metadata for GET /api/v1/models. */
+function getModelsMeta() {
+  const snapshot = getCatalogSnapshot();
+  return {
+    revision: snapshot?.revision ?? null,
+    lastError: snapshot?.lastError ?? null,
+  };
+}
+
+/** Flat model view for GET /api/v1/models. */
+function listModels() {
+  return getModelRegistryView().models().map((model) => ({
+    provider: model.provider,
+    id: model.id,
+    name: model.name,
+    wire: model.wire,
+    contextWindow: model.contextWindow,
+    maxOutputTokens: model.maxOutputTokens,
+    capabilities: model.capabilities,
+    status: model.status,
+    ...availabilityFor(model.provider),
+  }));
 }
 
 export default {
@@ -510,4 +580,6 @@ export default {
   updateSettings,
   updateSettingsWithMeta,
   listProviders,
+  listModels,
+  getModelsMeta,
 };

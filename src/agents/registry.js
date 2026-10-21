@@ -2,10 +2,11 @@
 //
 // Agent definitions are data, not behavior. `mode` separates the two public
 // primaries from internal helpers such as compaction. `policy` is the safety
-// envelope the loop and tool executor enforce even if the model asks for a
+// envelope the runtime and tool executor enforce even if the model asks for a
 // tool that is not in the advertised list.
-
-import { schema } from "#src/tools/tools.js";
+//
+// Tool lists are plain names: the runtime turns them into provider schemas
+// through src/tools/registry.js, so agents never import a tool implementation.
 
 const FULL_POLICY = Object.freeze({
   allowShell: true,
@@ -34,45 +35,45 @@ const COMPACTION_POLICY = Object.freeze({
   maxToolConcurrency: 1,
 });
 
-const nano = {
+const nano = Object.freeze({
   mode: "primary",
   instruction: "default",
-  tools: [
-    schema.readTool,
-    schema.writeTool,
-    schema.wordTool,
-    schema.excelTool,
-    schema.editTool,
-    schema.shellTool,
-    schema.globTool,
-    schema.grepTool,
-    schema.webSearchTool,
-    schema.webFetchTool,
-  ],
+  tools: Object.freeze([
+    "read",
+    "write",
+    "writeWord",
+    "writeExcel",
+    "edit",
+    "shell",
+    "glob",
+    "grep",
+    "webSearch",
+    "webFetch",
+  ]),
   policy: FULL_POLICY,
-};
+});
 
-const plan = {
+const plan = Object.freeze({
   mode: "primary",
   instruction: "plan",
-  tools: [schema.readTool, schema.globTool, schema.grepTool, schema.webSearchTool, schema.webFetchTool],
+  tools: Object.freeze(["read", "glob", "grep", "webSearch", "webFetch"]),
   policy: READ_ONLY_POLICY,
-};
+});
 
-const compaction = {
+const compaction = Object.freeze({
   mode: "subagent",
   instruction: "compaction",
-  tools: [],
+  tools: Object.freeze([]),
   policy: COMPACTION_POLICY,
-};
+});
 
-export const agents = {
+export const agents = Object.freeze({
   nano,
   plan,
   compaction,
-};
+});
 
-/** Tool name for either a schema object (today) or a plain name (Fase 2). */
+/** Tool name for either a plain name or a legacy schema object. */
 function toolName(tool) {
   return typeof tool === "string" ? tool : tool?.name;
 }
@@ -80,7 +81,9 @@ function toolName(tool) {
 /** Names advertised by an agent definition, in registry order. */
 export function toolNamesFor(definition) {
   if (!definition || !Array.isArray(definition.tools)) return [];
-  return definition.tools.map(toolName).filter((name) => typeof name === "string" && name.length > 0);
+  return definition.tools
+    .map(toolName)
+    .filter((name) => typeof name === "string" && name.length > 0);
 }
 
 /** Any agent definition, including internal subagents. */

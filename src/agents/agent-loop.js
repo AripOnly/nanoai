@@ -3,14 +3,14 @@
 // The provider/tool loop. It is deliberately bounded: every model step and
 // every parallel tool batch has a hard limit, and a client abort stops both
 // provider streaming and tool execution.
+//
+// This file is pure agent core: it receives a resolved provider adapter, tool
+// schemas, an executor function, and an optional compaction callback from the
+// runtime. It must not import settings, sessions, provider registries, or tool
+// implementations.
 
 import { EVENT } from "#src/shared/event-type.js";
 import { getCallId } from "#src/shared/call-id.js";
-import { getProvider } from "#src/llm/registry.js";
-import { toolExecute } from "./tool-execute.js";
-import { compaction, checkCompaction } from "./compaction.js";
-import { sessionStore } from "#src/session/session-store.js";
-import { settings } from "#src/config/config.js";
 
 const DEFAULT_MAX_STEPS = 24;
 const DEFAULT_MAX_TOOL_CALLS = 8;
@@ -30,6 +30,16 @@ function isAborted(signal) {
 
 function failure(name, message) {
   return { success: false, error: `Tool "${name}" was not executed: ${message}` };
+}
+
+function continuation(provider, context) {
+  if (typeof provider?.continue === "function") {
+    return provider.continue(context);
+  }
+  if (typeof provider?.feed === "function") {
+    return provider.feed(context);
+  }
+  return [];
 }
 
 /**
@@ -58,9 +68,19 @@ async function runWithConcurrency(items, limit, worker) {
 }
 
 export async function* agentLoop(request) {
-  // getProvider throws a clear "Unknown provider: X. Available providers: …"
-  // for a bad setting; agent.js turns that into an EVENT.ERROR for the user.
-  const provider = getProvider(request.provider);
+  const provider = request?.provider;
+  if (!provider || typeof provider.request !== "function") {
+    throw new Error(
+      "agentLoop requires a resolved provider adapter with request().",
+    );
+  }
+
+  const executeTool = request.executeTool;
+  if (isAborted(request.signal)) return;
+  if (typeof executeTool !== "function") {
+    throw new Error("agentLoop requires an executeTool() function.");
+  }
+
   const policy = request.policy ?? {};
   const maxSteps = positiveInteger(policy.maxSteps, DEFAULT_MAX_STEPS);
   const maxToolCalls = nonNegativeInteger(
@@ -71,8 +91,6 @@ export async function* agentLoop(request) {
     policy.maxToolConcurrency,
     DEFAULT_MAX_CONCURRENCY,
   );
-  const executeTool =
-    typeof request.executeTool === "function" ? request.executeTool : toolExecute;
 
   for (let step = 1; step <= maxSteps; step++) {
     if (isAborted(request.signal)) return;
@@ -81,7 +99,6 @@ export async function* agentLoop(request) {
     let reasoningSignature = "";
     let assistantText = "";
     let token = 0;
-    let resultCompaction = "";
 
     for await (const event of provider.request(request)) {
       if (isAborted(request.signal)) return;
@@ -177,8 +194,7 @@ export async function* agentLoop(request) {
         ];
       },
     );
-    // Keep the streaming pump from seeing an unhandled rejection before the
-    // loop gets a chance to await the same promise.
+
     const settled = all.catch((error) => {
       toolsDone = true;
       throw error;
@@ -215,50 +231,38 @@ export async function* agentLoop(request) {
       };
     }
 
-    request.input.push(
-      ...provider.feed({
-        reasoningSignature,
-        toolCall,
-        toolResult: results,
-      }),
-    );
+    const continuationParts = continuation(provider, {
+      reasoningSignature,
+      toolCall,
+      toolResult: results,
+    });
+    if (Array.isArray(continuationParts)) {
+      request.input.push(...continuationParts);
+    }
 
     if (isAborted(request.signal)) return;
 
-    if (await checkCompaction({ provider: request.provider, model: request.model, token })) {
-      let compact = compaction({
+    // Mid-turn compaction is a runtime use-case. The loop only asks; the
+    // runtime decides, persists the summary, and returns the pruned input.
+    if (typeof request.requestCompaction === "function") {
+      const compacted = await request.requestCompaction({
         conversation: request.input,
-        provider: request.provider,
-        model: request.model,
-        session_id: request.session_id,
-        signal: request.signal,
+        token,
       });
 
-      for await (let event of compact) {
-        if (isAborted(request.signal)) return;
+      if (isAborted(request.signal)) return;
 
-        if (event.role === EVENT.ASSISTANT) {
-          resultCompaction += event.content.text;
-          yield {
-            role: EVENT.COMPACTION,
-            content: { text: event.content.text },
-          };
+      if (compacted?.summary) {
+        request.instruction =
+          `${request.instruction}\n\n${compacted.summary}`.trim();
+        if (Array.isArray(compacted.input)) {
+          request.input = compacted.input;
         }
-
-        if (event.role === EVENT.ERROR) {
-          yield event;
-        }
+        yield {
+          role: EVENT.COMPACTION,
+          content: { text: compacted.summary },
+        };
       }
-
-      request.instruction =
-        request.instruction + "\n\n" + resultCompaction.trim();
-
-      request.input.push({
-        role: EVENT.COMPACTION,
-        content: { text: resultCompaction.trim() },
-      });
-      const { keep_turn } = await settings.get("compaction");
-      request.input = sessionStore.pruneConversation(request.input, keep_turn);
     }
   }
 
