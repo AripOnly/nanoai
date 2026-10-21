@@ -10,6 +10,14 @@ import {
   registerProvider,
 } from "../../src/llm/registry.js";
 
+const PROVIDERS = Object.freeze({
+  google: ["google-interactions"],
+  openai: ["openai-responses", "openai-chat"],
+  anthropic: ["anthropic-messages"],
+  openrouter: ["openai-responses", "openai-chat"],
+  "opencode-zen": ["openai-responses", "openai-chat"],
+});
+
 function validProvider(id, overrides = {}) {
   return {
     id,
@@ -27,27 +35,36 @@ function validProvider(id, overrides = {}) {
 }
 
 describe("llm provider registry", () => {
-  it("registers google as a configured one-client adapter", () => {
-    assert.deepEqual(listProviders(), ["google"]);
-    const entry = getProvider("google");
-    assert.equal(entry.id, "google");
-    assert.equal(typeof entry.configure, "function");
-    assert.equal(typeof entry.request, "function");
-    assert.equal(typeof entry.continue, "function");
-    assert.equal(typeof entry.dispose, "function");
-    assert.deepEqual(entry.supportedWires, ["google-interactions"]);
-    assert.equal(entry.models, undefined, "providers must not own a catalog");
+  it("registers all five adapters as configured one-client providers", () => {
+    assert.deepEqual(listProviders(), Object.keys(PROVIDERS));
+
+    for (const [id, wires] of Object.entries(PROVIDERS)) {
+      const entry = getProvider(id);
+      assert.equal(entry.id, id);
+      assert.equal(typeof entry.configure, "function");
+      assert.equal(typeof entry.request, "function");
+      assert.equal(typeof entry.continue, "function");
+      assert.equal(typeof entry.dispose, "function");
+      assert.deepEqual(entry.supportedWires, wires);
+      assert.equal(entry.models, undefined, "providers must not own a catalog");
+    }
   });
 
   it("answers provider membership without knowing models", () => {
-    assert.equal(isKnownProvider("google"), true);
+    for (const id of Object.keys(PROVIDERS)) {
+      assert.equal(isKnownProvider(id), true);
+    }
     assert.equal(isKnownProvider("nope"), false);
+    assert.equal(isKnownProvider(null), false);
+    assert.equal(isKnownProvider("toString"), false);
   });
 
   it("throws a clear error for unknown providers, listing the known ones", () => {
     assert.throws(
       () => getProvider("nope"),
-      /Unknown provider: nope\. Available providers: google\./,
+      new RegExp(
+        `Unknown provider: nope\\. Available providers: ${Object.keys(PROVIDERS).join(", ")}\\.`,
+      ),
     );
   });
 
@@ -90,6 +107,8 @@ describe("llm provider registry", () => {
 
   it("keeps the legacy llm table in sync through the llm.js wrapper", async () => {
     const { llm } = await import("../../src/llm/llm.js");
-    assert.equal(llm.google, getProvider("google"));
+    for (const id of Object.keys(PROVIDERS)) {
+      assert.equal(llm[id], getProvider(id));
+    }
   });
 });

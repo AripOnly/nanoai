@@ -98,6 +98,43 @@ describe("model refs", () => {
 });
 
 describe("model catalog validation", () => {
+  it("ships a valid multi-provider catalog with explicit wires", () => {
+    const shipped = loadCatalogSync(
+      path.join(process.cwd(), "config", "models.json"),
+    );
+    const registry = createModelRegistry({ ...shipped, revision: 1 });
+
+    assert.deepEqual([...registry.providers()].sort(), [
+      "anthropic",
+      "google",
+      "openai",
+      "opencode-zen",
+      "openrouter",
+    ]);
+    assert.ok(registry.find("google", "gemini-3.1-flash-lite"));
+    assert.equal(
+      registry.find("openai", "gpt-5.5").wire,
+      "openai-responses",
+    );
+    assert.equal(
+      registry.find("anthropic", "claude-sonnet-5-5").wire,
+      "anthropic-messages",
+    );
+    assert.equal(
+      registry.find("openrouter", "deepseek/deepseek-v4.1-flash").wire,
+      "openai-chat",
+    );
+    assert.equal(
+      registry.find("opencode-zen", "gpt-5.5").wire,
+      "openai-responses",
+    );
+    assert.equal(
+      registry.find("opencode-zen", "deepseek-v4.1-flash").wire,
+      "openai-chat",
+    );
+    assert.equal(shipped.models.length, 15);
+  });
+
   it("freezes a valid catalog and fills absent capabilities with false", () => {
     const validated = validateCatalog(
       catalog([

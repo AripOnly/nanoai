@@ -11,9 +11,13 @@
 //     configure({ credentials, endpoint }),   // idempotent per fingerprint
 //     request({ model, instruction, input, tools, signal, sentAttachments })
 //       -> AsyncIterable<ProviderEvent>,
-//     continue({ reasoningSignature, toolCall, toolResult }) -> ProviderPart[],
+//     continue({ toolCall, toolResult }) -> ProviderPart[],
 //     dispose()
 //   }
+//
+// The agent loop records every REASONING_SIGNATURE event before assistant text,
+// so `continue` only returns tool-call/tool-result history. Reasoning signatures
+// must never be re-added by an adapter or attached to a tool call/result.
 //
 // `continue` is required; `feed` remains accepted as a legacy alias inside the
 // agent loop while older adapters migrate, but a provider must still expose

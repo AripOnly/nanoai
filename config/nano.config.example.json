@@ -1,7 +1,9 @@
 {
-  "username": "youre name",
-  "model": "google/gemini-3.1-flas-lite",
+  "username": "your name",
+  "model": "google/gemini-3.1-flash-lite",
   "api_key": null,
+  "provider_keys": {},
+  "provider_endpoints": {},
   "serper_api_key": null,
   "compaction": {
     "ratio": 85,

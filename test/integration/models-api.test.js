@@ -73,8 +73,33 @@ describe("GET /api/v1/models", () => {
     assert.equal(model.status, "active");
     assert.equal(model.available, false);
     assert.equal(model.unavailableReason, "credential_missing");
+
+    const providers = new Set(body.models.map((entry) => entry.provider));
+    assert.deepEqual([...providers].sort(), [
+      "anthropic",
+      "google",
+      "openai",
+      "opencode-zen",
+      "openrouter",
+    ]);
+    const openrouter = body.models.find(
+      (entry) =>
+        entry.provider === "openrouter" &&
+        entry.id === "deepseek/deepseek-v4.1-flash",
+    );
+    assert.ok(openrouter, "nested OpenRouter id must survive the API");
+    assert.equal(openrouter.wire, "openai-chat");
+    assert.equal(openrouter.available, false);
+    const zen = body.models.find(
+      (entry) => entry.provider === "opencode-zen" && entry.id === "gpt-5.5",
+    );
+    assert.ok(zen, "OpenCode Zen must be visible as an OpenAI-compatible model");
+    assert.equal(zen.wire, "openai-responses");
+
     assert.equal(JSON.stringify(body).includes("apiKey"), false);
+    assert.equal(JSON.stringify(body).includes("api_key"), false);
     assert.equal(JSON.stringify(body).includes("provider_keys"), false);
+    assert.equal(JSON.stringify(body).includes("provider_endpoints"), false);
   });
 
   it("marks a model available when its provider key is present", async () => {
@@ -92,6 +117,26 @@ describe("GET /api/v1/models", () => {
       assert.equal(model.unavailableReason, null);
     } finally {
       delete process.env.NANO_GOOGLE_API_KEY;
+    }
+  });
+
+  it("uses the provider-specific key for non-Google providers", async () => {
+    process.env.NANO_OPENROUTER_API_KEY = "test-only-key";
+    try {
+      const response = await fetch(`${baseUrl}/api/v1/models`, {
+        headers: headers(),
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      const model = body.models.find(
+        (entry) =>
+          entry.provider === "openrouter" &&
+          entry.id === "deepseek/deepseek-v4.1-flash",
+      );
+      assert.equal(model.available, true);
+      assert.equal(model.unavailableReason, null);
+    } finally {
+      delete process.env.NANO_OPENROUTER_API_KEY;
     }
   });
 

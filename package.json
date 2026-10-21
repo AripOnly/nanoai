@@ -48,6 +48,7 @@
     "restore": "node scripts/restore.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
     "@google/genai": "^2.10.0",
     "better-sqlite3": "^12.11.1",
     "cli-spinners": "^3.4.0",
@@ -62,6 +63,7 @@
     "ink-text-input": "^6.0.0",
     "mammoth": "^1.13.0",
     "marked": "^15.0.7",
+    "openai": "^7.39.0",
     "react": "^19.2.8",
     "tsx": "^4.23.1",
     "turndown": "^7.2.4",

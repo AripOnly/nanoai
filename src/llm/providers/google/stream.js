@@ -1,6 +1,11 @@
-// src/provider/google/google-clean-output.js
+// src/llm/providers/google/stream.js
+//
+// Gemini Interactions SSE normalizer. Thought signatures are emitted as one
+// complete thought event at step.stop, paired with the summary that arrived in
+// the same step. They are never attached to function calls or results.
 
 import { EVENT } from "#src/shared/event-type.js";
+import { GOOGLE_THINKING_KIND } from "./constants.js";
 
 function parseArguments(raw) {
   if (typeof raw !== "string" || raw.trim() === "") return {};
@@ -12,11 +17,35 @@ function parseArguments(raw) {
   }
 }
 
+function summaryText(summary) {
+  if (typeof summary === "string") return summary;
+  if (!Array.isArray(summary)) return "";
+  return summary
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .join("");
+}
+
+function mergeSummary(current, next) {
+  if (next === "") return current;
+  if (current === "") return next;
+  if (next === current || next.startsWith(current)) return next;
+  if (current.endsWith(next)) return current;
+  return `${current}${next}`;
+}
+
+function mergeSignature(current, next) {
+  if (typeof next !== "string" || next === "") return current;
+  if (current === "") return next;
+  if (next === current || next.startsWith(current)) return next;
+  if (current.endsWith(next)) return current;
+  return `${current}${next}`;
+}
+
 export async function* stream(llmStream) {
   let currentStepType = null;
+  let thoughtState = null;
 
   const toolState = {
-    signature: null,
     id: null,
     name: null,
     arguments: "",
@@ -24,69 +53,111 @@ export async function* stream(llmStream) {
 
   for await (const event of llmStream) {
     switch (event.event_type) {
-      case "step.start":
-        currentStepType = event.step.type;
+      case "step.start": {
+        currentStepType = event.step?.type ?? null;
 
-        if (currentStepType === "function_call") {
-          toolState.id = event.step.id;
-          toolState.signature = event.step.signature ?? null;
-          toolState.name = event.step.name;
+        if (currentStepType === "thought") {
+          thoughtState = {
+            summary: summaryText(event.step?.summary),
+            signature:
+              typeof event.step?.signature === "string"
+                ? event.step.signature
+                : "",
+            emittedSummary: false,
+          };
+        } else if (currentStepType === "function_call") {
+          toolState.id = event.step?.id ?? null;
+          toolState.name = event.step?.name ?? null;
           toolState.arguments = "";
         }
         break;
+      }
 
       case "step.delta": {
         const delta = event.delta;
+        if (!delta) break;
 
         switch (delta.type) {
           case "text":
-            yield {
-              role: EVENT.ASSISTANT,
-              content: {
-                text: delta.text,
-              },
-            };
+            if (typeof delta.text === "string" && delta.text !== "") {
+              yield {
+                role: EVENT.ASSISTANT,
+                content: { text: delta.text },
+              };
+            }
             break;
 
-          case "thought_summary":
+          case "thought_summary": {
+            const text =
+              typeof delta.content?.text === "string"
+                ? delta.content.text
+                : typeof delta.text === "string"
+                  ? delta.text
+                  : "";
+            if (text === "") break;
+            if (thoughtState) {
+              thoughtState.summary = mergeSummary(thoughtState.summary, text);
+              thoughtState.emittedSummary = true;
+            }
             yield {
               role: EVENT.REASONING_SUMMARY,
-              content: {
-                text: delta.content.text,
-              },
+              content: { text },
             };
             break;
+          }
 
           case "thought_signature":
-            yield {
-              role: EVENT.REASONING_SIGNATURE,
-              content: {
-                signature: delta.signature,
-              },
-            };
+            if (thoughtState) {
+              thoughtState.signature = mergeSignature(
+                thoughtState.signature,
+                delta.signature,
+              );
+            }
             break;
 
           case "arguments_delta":
-            toolState.arguments += delta.arguments;
+            toolState.arguments += delta.arguments ?? "";
             break;
         }
 
         break;
       }
 
-      case "step.stop":
-        if (currentStepType === "function_call") {
+      case "step.stop": {
+        if (currentStepType === "thought") {
+          const signature = mergeSignature(
+            thoughtState?.signature ?? "",
+            event.step?.signature,
+          );
+          if (thoughtState && !thoughtState.emittedSummary && thoughtState.summary) {
+            yield {
+              role: EVENT.REASONING_SUMMARY,
+              content: { text: thoughtState.summary },
+            };
+          }
+          if (signature !== "") {
+            yield {
+              role: EVENT.REASONING_SIGNATURE,
+              content: {
+                kind: GOOGLE_THINKING_KIND,
+                signature,
+                ...(thoughtState?.summary
+                  ? { summary: thoughtState.summary }
+                  : {}),
+              },
+            };
+          }
+          thoughtState = null;
+        } else if (currentStepType === "function_call") {
           yield {
             role: EVENT.TOOL_CALL,
             content: {
-              signature: toolState.signature,
               call_id: toolState.id,
               name: toolState.name,
               arguments: parseArguments(toolState.arguments),
             },
           };
 
-          toolState.signature = null;
           toolState.id = null;
           toolState.name = null;
           toolState.arguments = "";
@@ -94,6 +165,7 @@ export async function* stream(llmStream) {
 
         currentStepType = null;
         break;
+      }
 
       case "interaction.completed": {
         const usage = event.interaction?.usage ?? {};

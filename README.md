@@ -29,8 +29,9 @@ folder where it reads, writes, and organizes files for you.
 
 - **Node.js 22+** (24 recommended) — plain Node, no build step, no native
   dependencies.
-- A **Google Gemini API key** ([AI Studio](https://aistudio.google.com/),
-  free tier works).
+- An API key for at least one supported provider: **Google Gemini**
+  ([AI Studio](https://aistudio.google.com/), free tier works), **OpenAI**,
+  **Anthropic**, **OpenRouter**, or **OpenCode Zen**.
 - **Windows (tested).** Linux and macOS are written cross-platform but
   still experimental — please report issues.
 
@@ -93,6 +94,13 @@ the code. Environment variables (all optional):
 | `HOST`                    | `127.0.0.1`                    | Gateway bind address (overrides `gateway.host`) |
 | `EXA_API_KEY`             | —                              | Optional: higher web-search limits       |
 
+Provider credentials use `NANO_<PROVIDER>_API_KEY` (for example
+`NANO_OPENCODE_ZEN_API_KEY`) or `provider_keys` in `nano.config.json`; the
+legacy top-level `api_key` remains a Google-only fallback. Custom endpoints use
+`NANO_<PROVIDER>_BASE_URL` or `provider_endpoints`. Shipped model IDs and wires
+live in `config/models.json`; OpenRouter IDs keep their nested slash, such as
+`openrouter/deepseek/deepseek-v4.1-flash`.
+
 `nano.config.json` supports hot-reload for safe settings (model, provider keys,
 provider endpoints, compaction, CORS, and token).
 The gateway watches the file (about one second) and keeps the last good
@@ -121,7 +129,8 @@ agent-ai-nano/
       shared/                    # shared helpers (attachments, truncate, rg, workspace)
     shared/              # cross-cutting helpers (data dir, naming, events)
     config/              # config module (reads ~/.nanoai/nano.config.json)
-    llm/providers/google/        # model provider (request/stream/feed)
+    llm/providers/       # google, openai, anthropic, openrouter, opencode-zen
+                         # (shared OpenAI-compatible wire + one client/provider)
     session/             # SQLite session store
     prompts/             # agent instructions + work environment
   apps/cli/              # Ink terminal UI (components/hooks/lib)

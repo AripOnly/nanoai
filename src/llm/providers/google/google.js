@@ -10,8 +10,10 @@ import crypto from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import { stream } from "./stream.js";
 import { EVENT } from "#src/shared/event-type.js";
-import { toStr } from "#src/utils/tostr.js";
 import { expandAttachments } from "#src/llm/attachment-expansion.js";
+import { providerErrorEvent } from "#src/llm/provider-error.js";
+import { toolContinuation } from "#src/llm/providers/shared/continuation.js";
+import { GOOGLE_THINKING_KIND } from "./constants.js";
 
 const WIRE = "google-interactions";
 
@@ -42,40 +44,43 @@ function toGemini(part) {
   }
 
   if (role === EVENT.REASONING_SIGNATURE) {
+    // Signatures belong to thought steps only. A signature from another
+    // provider (OpenAI/Anthropic) must never be sent as a Gemini thought.
+    if (
+      part.content?.kind != null &&
+      part.content.kind !== GOOGLE_THINKING_KIND
+    ) {
+      return null;
+    }
+    const summary =
+      typeof part.content?.summary === "string" && part.content.summary !== ""
+        ? [{ type: "text", text: part.content.summary }]
+        : undefined;
     return {
       type: "thought",
       signature: part.content.signature,
+      ...(summary ? { summary } : {}),
     };
   }
 
   if (role === EVENT.TOOL_CALL) {
-    const functionCall = {
+    // Never attach thought signatures to function calls/results. Gemini
+    // requires them as their own thought steps.
+    return {
       type: "function_call",
       id: part.content.call_id,
       name: part.content.name,
       arguments: part.content.arguments,
     };
-
-    if (part.content.signature != null) {
-      functionCall.signature = part.content.signature;
-    }
-
-    return functionCall;
   }
 
   if (role === EVENT.TOOL_RESULT) {
-    const functionResult = {
+    return {
       type: "function_result",
       call_id: part.content.call_id,
       name: part.content.name,
       result: part.content.result,
     };
-
-    if (part.content.signature != null) {
-      functionResult.signature = part.content.signature;
-    }
-
-    return functionResult;
   }
 
   if (role === EVENT.ASSISTANT) {
@@ -119,9 +124,12 @@ function errorMessage(err) {
     : message || errMsg || "Google provider error";
 }
 
-export function createGoogleProvider() {
+export function createGoogleProvider({
+  clientFactory = (options) => new GoogleGenAI(options),
+} = {}) {
   let client = null;
   let clientFingerprint = null;
+  let secret = null;
 
   const provider = {
     id: "google",
@@ -141,20 +149,34 @@ export function createGoogleProvider() {
         throw new Error("Google provider requires an API key.");
       }
 
-      const next = fingerprint(apiKey, endpoint);
+      const normalizedKey = apiKey.trim();
+      const next = fingerprint(normalizedKey, endpoint);
       if (client && clientFingerprint === next) {
         return provider;
       }
 
-      client = new GoogleGenAI({
-        apiKey,
+      client = clientFactory({
+        apiKey: normalizedKey,
         ...(endpoint ? { httpOptions: { baseUrl: endpoint } } : {}),
       });
       clientFingerprint = next;
+      secret = normalizedKey;
       return provider;
     },
 
     async *request(request) {
+      if (request?.model?.wire !== WIRE) {
+        yield {
+          role: EVENT.ERROR,
+          content: {
+            code: "WIRE_UNSUPPORTED",
+            retryable: false,
+            message: `Google provider does not support wire "${request?.model?.wire ?? "(missing)"}".`,
+          },
+        };
+        return;
+      }
+
       try {
         if (!client) {
           throw new Error("Google provider is not configured.");
@@ -184,23 +206,13 @@ export function createGoogleProvider() {
         });
 
         yield* stream(llmStream);
-      } catch (err) {
-        if (
-          err?.name === "AbortError" ||
-          err?.code === 20 ||
-          err?.message?.includes("aborted")
-        ) {
-          return;
-        }
-
-        yield {
-          role: EVENT.ERROR,
-          content: {
-            code: "PROVIDER_ERROR",
-            retryable: false,
-            message: errorMessage(err),
-          },
-        };
+      } catch (error) {
+        const event = providerErrorEvent(error, {
+          provider: "google",
+          message: errorMessage(error),
+          secrets: secret ? [secret] : [],
+        });
+        if (event) yield event;
       }
     },
 
@@ -220,71 +232,15 @@ export function createGoogleProvider() {
     dispose() {
       client = null;
       clientFingerprint = null;
+      secret = null;
     },
   };
 
   return provider;
 }
 
-function continuationParts({ reasoningSignature, toolCall, toolResult }) {
-  const parts = [];
-
-  if (reasoningSignature) {
-    parts.push({
-      role: EVENT.REASONING_SIGNATURE,
-      content: { signature: reasoningSignature },
-    });
-  }
-
-  if (!toolCall) {
-    return parts;
-  }
-
-  for (let i = 0; i < toolCall.length; i++) {
-    const functionCall = {
-      role: EVENT.TOOL_CALL,
-      content: {
-        type: "tool_call",
-        call_id: toolCall[i].call_id,
-        name: toolCall[i].name,
-        arguments: toolCall[i].arguments,
-      },
-    };
-
-    if (toolCall[i].signature != null) {
-      functionCall.content.signature = toolCall[i].signature;
-    }
-
-    parts.push(functionCall);
-  }
-
-  for (let i = 0; i < toolCall.length; i++) {
-    // Raw tool results stay structured here: readable text goes to `result`,
-    // attachment references ride alongside and are expanded to bytes exactly
-    // once at send time (see expandAttachments).
-    const raw = toolResult[i];
-    const text =
-      typeof raw === "string" ? raw : raw?.output ?? raw?.error ?? toStr(raw);
-    const attachments = Array.isArray(raw?.attachments)
-      ? raw.attachments
-      : [];
-    const functionResult = {
-      role: EVENT.TOOL_RESULT,
-      content: {
-        type: "tool_result",
-        call_id: toolCall[i].call_id,
-        name: toolCall[i].name,
-        result: text,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      },
-    };
-
-    if (toolCall[i].signature != null) {
-      functionResult.content.signature = toolCall[i].signature;
-    }
-
-    parts.push(functionResult);
-  }
-
-  return parts;
+function continuationParts(context) {
+  // The agent loop owns reasoning-signature placement. This adapter adds only
+  // the tool call/result history, exactly once.
+  return toolContinuation(context);
 }

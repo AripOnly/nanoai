@@ -9,6 +9,10 @@
 // src/models/.
 
 import { createGoogleProvider } from "./providers/google/google.js";
+import { createOpenAIProvider } from "./providers/openai/openai.js";
+import { createAnthropicProvider } from "./providers/anthropic/anthropic.js";
+import { createOpenRouterProvider } from "./providers/openrouter/openrouter.js";
+import { createOpenCodeZenProvider } from "./providers/opencode-zen/opencode-zen.js";
 import { assertProviderContract } from "./provider-contract.js";
 
 // Public provider table. A null-prototype object so ids such as "toString"
@@ -52,3 +56,7 @@ export function getProviderRegistry() {
 }
 
 registerProvider("google", createGoogleProvider());
+registerProvider("openai", createOpenAIProvider());
+registerProvider("anthropic", createAnthropicProvider());
+registerProvider("openrouter", createOpenRouterProvider());
+registerProvider("opencode-zen", createOpenCodeZenProvider());

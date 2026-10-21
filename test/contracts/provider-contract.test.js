@@ -111,7 +111,7 @@ describe("google adapter", () => {
 
     const events = [];
     for await (const event of google.request({
-      model: { id: "gemini-test" },
+      model: { id: "gemini-test", wire: "google-interactions" },
       instruction: "test",
       input: [],
       tools: [],
@@ -138,10 +138,11 @@ describe("google adapter", () => {
     google.dispose();
   });
 
-  it("maps provider continuation parts without exposing credentials", () => {
+  it("maps continuation to tool parts only, never reasoning signatures", () => {
     const google = getProvider("google");
-    const parts = google.continue({
+    const context = {
       reasoningSignature: "sig-1",
+      reasoningSignatures: [{ signature: "sig-1" }],
       toolCall: [
         { call_id: "call-1", name: "read", arguments: { path: "a.txt" } },
         { call_id: "call-2", name: "grep", arguments: { pattern: "x" } },
@@ -150,22 +151,25 @@ describe("google adapter", () => {
         { output: "first" },
         { error: "second", attachments: [{ id: "att-1" }] },
       ],
-    });
+    };
+    const parts = google.continue(context);
 
-    assert.deepEqual(parts[0], {
-      role: EVENT.REASONING_SIGNATURE,
-      content: { signature: "sig-1" },
-    });
+    assert.equal(parts.length, 4);
+    assert.equal(parts[0].role, EVENT.TOOL_CALL);
+    assert.equal(parts[0].content.call_id, "call-1");
     assert.equal(parts[1].role, EVENT.TOOL_CALL);
-    assert.equal(parts[1].content.call_id, "call-1");
-    assert.equal(parts[2].role, EVENT.TOOL_CALL);
-    assert.equal(parts[3].role, EVENT.TOOL_RESULT);
-    assert.equal(parts[3].content.result, "first");
-    assert.equal(parts[4].content.result, "second");
-    assert.deepEqual(parts[4].content.attachments, [{ id: "att-1" }]);
+    assert.equal(parts[2].role, EVENT.TOOL_RESULT);
+    assert.equal(parts[2].content.result, "first");
+    assert.equal(parts[3].content.result, "second");
+    assert.deepEqual(parts[3].content.attachments, [{ id: "att-1" }]);
+    assert.equal(
+      parts.some((part) => part.role === EVENT.REASONING_SIGNATURE),
+      false,
+      "the agent loop owns signature placement",
+    );
     assert.equal(JSON.stringify(parts).includes("test-key"), false);
 
     // feed() is kept only as an alias and returns the same shape.
-    assert.deepEqual(google.feed({ reasoningSignature: "sig-1" }), parts.slice(0, 1));
+    assert.deepEqual(google.feed(context), parts);
   });
 });

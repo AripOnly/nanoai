@@ -11,6 +11,7 @@ import { EVENT } from "../../src/shared/event-type.js";
 import {
   assistant,
   createFakeProvider,
+  reasoningSignature,
   textTurn,
   toolCall,
   toolTurn,
@@ -165,6 +166,125 @@ describe("agent loop bounds", () => {
     );
     assert.equal(results.length, 3);
     assert.match(results[2].content.result.error, /limit is 2/);
+  });
+
+  it("records every reasoning signature before assistant text on a final response", async () => {
+    const provider = createFakeProvider({
+      id: PROVIDER,
+      turns: [
+        [
+          reasoningSignature("sig-1"),
+          reasoningSignature("sig-2"),
+          assistant("final answer"),
+          usage({ input_tokens: 3, output_tokens: 2 }),
+        ],
+      ],
+    });
+
+    const events = await collect(agentLoop(request({ provider })));
+    const input = provider.calls.request[0].input;
+
+    assert.deepEqual(
+      input.map((part) => part.role),
+      [EVENT.REASONING_SIGNATURE, EVENT.REASONING_SIGNATURE, EVENT.ASSISTANT],
+    );
+    assert.equal(input[0].content.signature, "sig-1");
+    assert.equal(input[1].content.signature, "sig-2");
+    assert.equal(input[2].content.text, "final answer");
+    assert.equal(
+      events.filter((event) => event.role === EVENT.REASONING_SIGNATURE).length,
+      2,
+    );
+  });
+
+  it("gives continue() every signature but keeps signatures out of its parts", async () => {
+    const requests = [];
+    const continuationCalls = [];
+    const provider = {
+      id: PROVIDER,
+      supportedWires: ["fake-wire"],
+      configure() {
+        return this;
+      },
+      async *request(current) {
+        requests.push(current);
+        if (requests.length === 1) {
+          yield reasoningSignature("sig-a");
+          yield reasoningSignature("sig-b");
+          yield assistant("checking");
+          yield toolCall({
+            call_id: "call-1",
+            name: "read",
+            arguments: { path: "unused" },
+          });
+          yield usage({ input_tokens: 4, output_tokens: 2 });
+          return;
+        }
+        yield assistant("done");
+      },
+      continue(context) {
+        continuationCalls.push(context);
+        return [
+          {
+            role: EVENT.TOOL_CALL,
+            content: {
+              call_id: "call-1",
+              name: "read",
+              arguments: { path: "unused" },
+            },
+          },
+          {
+            role: EVENT.TOOL_RESULT,
+            content: {
+              call_id: "call-1",
+              name: "read",
+              result: "ok",
+            },
+          },
+        ];
+      },
+      dispose() {},
+    };
+
+    const events = await collect(
+      agentLoop(
+        request({
+          provider,
+          policy: {
+            maxSteps: 2,
+            maxToolCallsPerStep: 4,
+            maxToolConcurrency: 1,
+          },
+        }),
+      ),
+    );
+
+    assert.equal(requests.length, 2);
+    assert.equal(continuationCalls.length, 1);
+    assert.deepEqual(
+      continuationCalls[0].reasoningSignatures.map(
+        (part) => part.content.signature,
+      ),
+      ["sig-a", "sig-b"],
+    );
+    assert.equal(continuationCalls[0].reasoningSignature, "sig-b");
+    assert.deepEqual(
+      requests[1].input.map((part) => part.role),
+      [
+        EVENT.REASONING_SIGNATURE,
+        EVENT.REASONING_SIGNATURE,
+        EVENT.ASSISTANT,
+        EVENT.TOOL_CALL,
+        EVENT.TOOL_RESULT,
+        EVENT.ASSISTANT,
+      ],
+      "signatures precede assistant text; the final step appends its own answer",
+    );
+    assert.equal(
+      events.filter((event) => event.role === EVENT.REASONING_SIGNATURE).length,
+      2,
+      "the loop must not duplicate adapter-provided signatures",
+    );
   });
 
   it("stops a runaway loop after maxSteps", async () => {

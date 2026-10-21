@@ -96,6 +96,7 @@ export async function* agentLoop(request) {
     if (isAborted(request.signal)) return;
 
     let toolCall = [];
+    const reasoningSignatures = [];
     let reasoningSignature = "";
     let assistantText = "";
     let token = 0;
@@ -109,7 +110,16 @@ export async function* agentLoop(request) {
           break;
 
         case EVENT.REASONING_SIGNATURE:
-          reasoningSignature = event.content.signature;
+          if (
+            typeof event.content?.signature === "string" &&
+            event.content.signature !== ""
+          ) {
+            reasoningSignatures.push({
+              role: EVENT.REASONING_SIGNATURE,
+              content: { ...event.content },
+            });
+            reasoningSignature = event.content.signature;
+          }
           break;
 
         case EVENT.TOOL_CALL:
@@ -125,6 +135,13 @@ export async function* agentLoop(request) {
     }
 
     if (isAborted(request.signal)) return;
+
+    // Thought/reasoning items always precede the assistant output they belong
+    // to. They are recorded even on a final text-only response so the provider
+    // can verify the reasoning state on a later user turn.
+    if (reasoningSignatures.length > 0) {
+      request.input.push(...reasoningSignatures);
+    }
 
     if (assistantText) {
       request.input.push({
@@ -224,15 +241,13 @@ export async function* agentLoop(request) {
           call_id: callId,
           name: toolCall[i].name,
           result: results[i],
-          ...(toolCall[i].signature != null
-            ? { signature: toolCall[i].signature }
-            : {}),
         },
       };
     }
 
     const continuationParts = continuation(provider, {
       reasoningSignature,
+      reasoningSignatures,
       toolCall,
       toolResult: results,
     });
