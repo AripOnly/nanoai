@@ -100,28 +100,72 @@ function toGemini(part) {
   return null;
 }
 
-function errorMessage(err) {
-  let message = err?.message;
-
-  if (err?.body) {
-    try {
-      const data = err.body
-        .split("\n")
-        .find((line) => line.startsWith("data: "))
-        ?.slice(6);
-
-      if (data) {
-        message = JSON.parse(data).error.message;
+/**
+ * Pull the provider's human-readable message out of every body shape the
+ * Google SDK has used: an SSE/JSON string, a decoded JSON array, or an object.
+ * Newer SDK versions return `[{ error: { message } }]` for HTTP failures.
+ */
+function messageFromBody(body) {
+  if (typeof body === "string") {
+    const text = body.trim();
+    if (text === "") return null;
+    if (text.startsWith("data:")) {
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "" || payload === "[DONE]") continue;
+        const nested = messageFromBody(payload);
+        if (nested) return nested;
       }
+      return null;
+    }
+    try {
+      return messageFromBody(JSON.parse(text));
     } catch {
-      // Keep the original error message.
+      return null;
     }
   }
 
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const nested = messageFromBody(item);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  if (body && typeof body === "object") {
+    if (
+      typeof body.error?.message === "string" &&
+      body.error.message.trim() !== ""
+    ) {
+      return body.error.message.trim();
+    }
+    if (typeof body.message === "string" && body.message.trim() !== "") {
+      return body.message.trim();
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function errorMessage(err) {
+  let detail = messageFromBody(err?.body);
+  if (
+    detail === null &&
+    typeof err?.error?.message === "string" &&
+    err.error.message.trim() !== ""
+  ) {
+    detail = err.error.message.trim();
+  }
+
   const errMsg = String(err?.message ?? err ?? "");
-  return message && !errMsg.includes(message)
+  const message = detail || errMsg || "Google provider error";
+  return errMsg && !errMsg.includes(message)
     ? `${errMsg}\n${message}`
-    : message || errMsg || "Google provider error";
+    : message;
 }
 
 export function createGoogleProvider({

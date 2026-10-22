@@ -349,4 +349,36 @@ describe("Google Interactions request", () => {
     assert.equal(networkEvents[0].content.code, "PROVIDER_NETWORK_ERROR");
     assert.equal(networkEvents[0].content.retryable, true);
   });
+
+  it("classifies auth errors from a decoded JSON body array", async () => {
+    const secret = "body_array_google_credential_123";
+    const auth = fakeGoogle({
+      error: {
+        status: 400,
+        message: '400 API error occurred: {"httpMeta":{}}',
+        body: [
+          {
+            error: {
+              code: 400,
+              message: `API key not valid. Please pass a valid API key. ${secret}`,
+            },
+          },
+        ],
+      },
+    });
+    const provider = createGoogleProvider({
+      clientFactory: () => auth.client,
+    });
+    provider.configure({ credentials: { apiKey: secret } });
+
+    const events = await collect(
+      provider.request(
+        request({ id: "gemini-3.1-flash-lite", wire: "google-interactions" }),
+      ),
+    );
+
+    assert.equal(events[0].content.code, "PROVIDER_AUTH_ERROR");
+    assert.match(events[0].content.message, /API key not valid/);
+    assert.equal(events[0].content.message.includes(secret), false);
+  });
 });
