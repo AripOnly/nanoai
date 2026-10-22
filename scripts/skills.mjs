@@ -65,13 +65,16 @@ function helpText() {
     "nanoai skills — explicit skill management",
     "",
     "Usage:",
-    "  nanoai skills add <owner/repo[/skill]> [--skill <name>] --trust user-approved [--yes]",
-    "  nanoai skills add <url> --skill <name> --trust user-approved [--yes]",
+    "  nanoai skills add <owner/repo[/skill]> [--skill <name>] [--trust user-approved] [--yes]",
+    "  nanoai skills add <url> --skill <name> [--trust user-approved] [--yes]",
+    "  nanoai skills add <path> [--skill <name>] [--trust user-approved] [--yes]",
     "  nanoai skills list [--json]",
     "  nanoai skills inspect <name> [--json]",
     "  nanoai skills remove <name> [--yes]",
     "  nanoai skills update <name> [--yes]",
     "  nanoai skills reload [--json]",
+    "",
+    "Installs ask for confirmation. With --yes, --trust user-approved is required.",
     "",
     "Skills are prompt content, not code. NanoAI never executes skill scripts.",
     "External skills are untrusted until you explicitly install them; their",
@@ -184,26 +187,42 @@ function printTable(skills) {
 
 async function commandAdd(argv) {
   const { positional, options } = parseArgs(argv);
+  if (options.help) {
+    console.log(helpText());
+    return 0;
+  }
   if (positional.length !== 1) {
-    fail("Usage: nanoai skills add <source> --skill <name> --trust user-approved [--yes]");
+    fail(
+      "Usage: nanoai skills add <source> [--skill <name>] [--trust user-approved] [--yes]",
+    );
   }
-  if (options.trust !== "user-approved") {
-    fail("Installing requires --trust user-approved (you reviewed the skill).");
+  if (options.trust !== undefined && options.trust !== "user-approved") {
+    fail("--trust must be user-approved.");
   }
+  if (options.yes && options.trust !== "user-approved") {
+    fail(
+      "Non-interactive install requires --trust user-approved (only use it after reviewing the source).",
+    );
+  }
+
+  const sourceLabel = safeTerminal(positional[0]);
+  console.log(`Source: ${sourceLabel}`);
+  if (typeof options.skill === "string") {
+    console.log(`Skill: ${safeTerminal(options.skill)}`);
+  }
+  console.log(
+    "Warning: skills are untrusted prompt content and are not scanned by NanoAI for safety. " +
+      "skills.sh scanners are not a security guarantee.",
+  );
   if (!options.yes) {
     const accepted = await confirm(
-      `Install "${safeTerminal(positional[0])}" as user-approved prompt content?`,
+      `Install "${sourceLabel}" and trust it as user-approved prompt content?`,
     );
     if (!accepted) {
       console.log("Cancelled.");
       return 0;
     }
   }
-
-  console.log(
-    "Note: skills are untrusted prompt content and are not scanned by NanoAI for safety. " +
-      "skills.sh scanners are not a security guarantee.",
-  );
   const result = await installSkill({
     source: positional[0],
     skill: options.skill ?? null,
@@ -249,6 +268,10 @@ async function commandList(argv) {
 
 async function commandInspect(argv) {
   const { positional, options } = parseArgs(argv);
+  if (options.help) {
+    console.log(helpText());
+    return 0;
+  }
   if (positional.length !== 1) fail("Usage: nanoai skills inspect <name>");
   const skills = registry();
   await skills.init();
@@ -283,6 +306,10 @@ async function commandInspect(argv) {
 
 async function commandRemove(argv) {
   const { positional, options } = parseArgs(argv);
+  if (options.help) {
+    console.log(helpText());
+    return 0;
+  }
   if (positional.length !== 1) fail("Usage: nanoai skills remove <name> [--yes]");
   if (!options.yes) {
     const accepted = await confirm(`Remove skill "${safeTerminal(positional[0])}"?`);
@@ -300,6 +327,10 @@ async function commandRemove(argv) {
 
 async function commandUpdate(argv) {
   const { positional, options } = parseArgs(argv);
+  if (options.help) {
+    console.log(helpText());
+    return 0;
+  }
   if (positional.length !== 1) fail("Usage: nanoai skills update <name> [--yes]");
   if (!options.yes) {
     const accepted = await confirm(
@@ -331,6 +362,10 @@ async function commandUpdate(argv) {
 
 async function commandReload(argv) {
   const { options } = parseArgs(argv);
+  if (options.help) {
+    console.log(helpText());
+    return 0;
+  }
   const skills = registry();
   const snapshot = await skills.reload({ reason: "cli" });
   const gateway = await reloadGateway();
