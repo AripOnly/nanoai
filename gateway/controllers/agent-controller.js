@@ -131,7 +131,15 @@ export function createAgentController(service = agentService) {
         return;
       }
 
-      console.error("[gateway] agent stream failed:", error);
+      const logger = req.app?.locals?.logger;
+      if (logger?.error) {
+        logger.error("agent stream failed", {
+          event: "gateway.agent.stream.failed",
+          error,
+        });
+      } else {
+        console.error("[gateway] agent stream failed:", error);
+      }
       try {
         const ok = await writeEvent(res, sseError(error));
         if (ok && !res.writableEnded) res.end();

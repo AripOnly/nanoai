@@ -27,6 +27,14 @@ import { createRuntime, createJobNotice } from "../src/runtime/index.js";
 import { createJobManager } from "../src/jobs/index.js";
 import { createSkillRegistry } from "../src/skills/index.js";
 import { toolRegistry } from "../src/tools/registry.js";
+import { createLogger } from "../src/infra/logger.js";
+import { startAttachmentCleanup } from "../src/infra/attachments.js";
+
+const logger = createLogger({
+  name: "gateway",
+  level: process.env.NANO_LOG_LEVEL ?? "info",
+});
+let shuttingDown = false;
 
 // Boot order is a safety property: settings and the model catalog must be
 // readable, the gateway token must exist, and the runtime must be built before
@@ -37,12 +45,16 @@ await initModelCatalog();
 const { token, created } = await getGatewayToken();
 
 if (created) {
-  console.log(
-    "[nanoai] First boot: generated a gateway token and saved it to nano.config.json.",
+  logger.info(
+    "First boot: generated a gateway token and saved it to nano.config.json.",
+    { event: "gateway.token.created" },
   );
+  // The token is printed exactly once so the operator can copy it. It is
+  // deliberately not passed through the structured logger's field redaction.
   console.log(`[nanoai] Gateway token: ${token}`);
-  console.log(
-    "[nanoai] Save it now. Every /api request needs: Authorization: Bearer <token>.",
+  logger.info(
+    "Save the token now. Every /api request needs: Authorization: Bearer <token>.",
+    { event: "gateway.token.notice" },
   );
 }
 
@@ -55,14 +67,18 @@ const knownSkillTools = toolRegistry
 const skills = createSkillRegistry({
   config: getSnapshot,
   knownTools: knownSkillTools,
+  logger,
 });
 try {
   await skills.init();
 } catch (error) {
-  console.error("[nanoai] Skill registry initialization failed:", error);
+  logger.error("Skill registry initialization failed", {
+    event: "gateway.skills.init.failed",
+    error,
+  });
 }
 
-const jobs = createJobManager({ config: getSnapshot });
+const jobs = createJobManager({ config: getSnapshot, logger });
 
 const runtime = createRuntime({
   providers: getProviderRegistry(),
@@ -85,15 +101,25 @@ const jobNotice = createJobNotice({
 try {
   const summary = await jobs.init();
   if (summary.inspected > 0) {
-    console.log(
-      `[nanoai] Recovered jobs: ${summary.running} running, ${summary.finished} finished, ${summary.lost} lost.`,
-    );
+    logger.info("Recovered background jobs", {
+      event: "gateway.jobs.recovered",
+      ...summary,
+    });
   }
 } catch (error) {
-  console.error("[nanoai] Job reconciliation failed:", error);
+  logger.error("Job reconciliation failed", {
+    event: "gateway.jobs.reconcile.failed",
+    error,
+  });
 }
 
-const app = await createApp({ runtime, jobs, skills });
+const app = await createApp({
+  runtime,
+  jobs,
+  skills,
+  logger,
+  shutdown: (reason) => shutdown(reason),
+});
 
 const { port: PORT, host: HOST } = resolveListen({
   gateway: getSnapshot().value.gateway,
@@ -105,11 +131,13 @@ const { port: PORT, host: HOST } = resolveListen({
 startSettingsWatcher();
 startModelCatalogWatcher();
 skills.startWatcher();
+const stopAttachmentCleanup = startAttachmentCleanup();
 
 function stopWatchers() {
   stopSettingsWatcher();
   stopModelCatalogWatcher();
   skills.stopWatcher();
+  stopAttachmentCleanup();
 }
 
 let booted;
@@ -122,27 +150,36 @@ try {
     port: PORT,
     host: HOST,
     onListen: () => {
-      console.log(`Server is running on http://${HOST}:${PORT}`);
+      logger.info("Server is running", {
+        event: "gateway.listen",
+        host: HOST,
+        port: PORT,
+        url: `http://${HOST}:${PORT}`,
+      });
     },
   });
 } catch (error) {
   stopWatchers();
-  console.error("[nanoai] Boot failed:", error);
+  logger.error("Boot failed", { event: "gateway.boot.failed", error });
   process.exit(1);
 }
 
 const { server, recovered } = booted;
 if (recovered > 0) {
-  console.log(
-    `[nanoai] Recovered ${recovered} interrupted turn(s) from the previous run.`,
-  );
+  logger.info("Recovered interrupted turns", {
+    event: "gateway.turns.recovered",
+    count: recovered,
+  });
 }
 
 // Now that session recovery is complete and the port is bound, turn persisted
 // pending notifications into notice turns. This never blocks startup.
 jobs.setCompletionHandler((job) => jobNotice.enqueue(job));
 void jobNotice.start().catch((error) => {
-  console.error("[nanoai] Job notice dispatch failed:", error);
+  logger.error("Job notice dispatch failed", {
+    event: "gateway.job-notice.failed",
+    error,
+  });
 });
 
 // A stale instance still holding the port is the most common boot failure
@@ -151,13 +188,14 @@ server.on("error", (error) => {
   stopWatchers();
   jobs.dispose();
   if (error?.code === "EADDRINUSE") {
-    console.error(
-      `[nanoai] Port ${PORT} on ${HOST} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
+    logger.error(
+      `Port ${PORT} on ${HOST} is already in use. Another gateway instance is probably still running — stop it first, then boot again.`,
+      { event: "gateway.listen.eaddrinuse", port: PORT, host: HOST },
     );
     process.exit(1);
     return;
   }
-  console.error("[nanoai] Server error:", error);
+  logger.error("Server error", { event: "gateway.server.error", error });
   process.exit(1);
 });
 
@@ -166,13 +204,24 @@ server.on("error", (error) => {
 // protections, not a short idle timer.
 server.requestTimeout = 0;
 
-async function shutdown(signal) {
-  console.log(`[nanoai] Received ${signal}, shutting down...`);
+async function shutdown(reason = "shutdown") {
+  if (shuttingDown) {
+    logger.warn("Shutdown already in progress", {
+      event: "gateway.shutdown.duplicate",
+      reason,
+    });
+    return;
+  }
+  shuttingDown = true;
+  logger.info("Shutting down", { event: "gateway.shutdown.start", reason });
 
   // Arm the hard stop before any await: a wedged notice turn or socket must
   // not be able to keep the process alive indefinitely.
   const forceExit = setTimeout(() => {
-    console.log("[nanoai] Shutdown timed out, forcing exit.");
+    logger.error("Shutdown timed out, forcing exit", {
+      event: "gateway.shutdown.timeout",
+      reason,
+    });
     process.exit(1);
   }, 10_000);
   forceExit.unref();
@@ -183,12 +232,27 @@ async function shutdown(signal) {
 
   // Stop provider/tool work first. The controllers' generators then commit
   // their partial turns before server.close() finishes waiting for sockets.
-  abortActiveTurns(new Error(`Gateway shutdown (${signal})`));
+  // Each step is best-effort: one broken disposer must not prevent the rest of
+  // the shutdown path (or turn a deliberate stop into a daemon restart).
+  const runStep = async (step, fn) => {
+    try {
+      await fn();
+    } catch (error) {
+      logger.error("Shutdown step failed", {
+        event: "gateway.shutdown.step.failed",
+        step,
+        error,
+      });
+    }
+  };
+  await runStep("abort-turns", () =>
+    abortActiveTurns(new Error(`Gateway shutdown (${reason})`)),
+  );
   // Stop auto-continue first. Dispose watchers but NEVER kill detached jobs:
   // they are supposed to outlive the gateway.
-  await jobNotice.dispose();
-  jobs.dispose();
-  runtime.dispose?.();
+  await runStep("job-notice", () => jobNotice.dispose());
+  await runStep("jobs", () => jobs.dispose());
+  await runStep("runtime", () => runtime.dispose?.());
 
   server.close(() => {
     try {
@@ -196,10 +260,31 @@ async function shutdown(signal) {
     } catch {
       // Already closed or never opened; nothing to do.
     }
-    console.log("[nanoai] Shutdown complete.");
+    logger.info("Shutdown complete", {
+      event: "gateway.shutdown.complete",
+      reason,
+    });
     process.exit(0);
   });
 }
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+// A crash must be observable and must produce a non-zero exit so the daemon
+// restarts the gateway. Without these handlers Node may exit silently on an
+// unhandled rejection or leave a half-dead process behind.
+process.on("uncaughtException", (error) => {
+  logger.fatal("Uncaught exception", {
+    event: "gateway.process.uncaught",
+    error,
+  });
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  logger.fatal("Unhandled rejection", {
+    event: "gateway.process.unhandled-rejection",
+    error: reason,
+  });
+  process.exit(1);
+});

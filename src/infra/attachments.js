@@ -21,7 +21,8 @@ export const ATTACH_DIR = path.join(dataDir(), "attachments");
 // are refused with guidance instead of failing obscurely at the API.
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 // Best-effort 7-day retention for the attachment cache.
-const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const ATTACHMENT_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Image types the model accepts inline.
 export const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
@@ -35,23 +36,52 @@ function extensionForMime(mime) {
   return ".bin";
 }
 
-async function cleanupOldAttachments() {
+/**
+ * Delete cached attachments older than the retention window. Returns the
+ * number removed so boot-time sweeps can be logged and tested. Callers also
+ * invoke this opportunistically after a save; the gateway schedules a daily
+ * sweep so an idle process still honors retention.
+ */
+export async function cleanupOldAttachments({
+  now = Date.now(),
+  retentionMs = ATTACHMENT_RETENTION_MS,
+} = {}) {
   let entries;
   try {
     entries = fs.readdirSync(ATTACH_DIR);
   } catch {
-    return;
+    return { removed: 0 };
   }
-  const cutoff = Date.now() - RETENTION_MS;
+  const cutoff = now - Math.max(0, retentionMs);
+  let removed = 0;
   for (const entry of entries) {
     if (!/^[A-Za-z0-9_-]+\.[a-z0-9]+$/i.test(entry)) continue;
     const file = path.join(ATTACH_DIR, entry);
     try {
-      if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file, { force: true });
+      if (fs.statSync(file).mtimeMs < cutoff) {
+        fs.rmSync(file, { force: true });
+        removed += 1;
+      }
     } catch {
       // One stale file must never break a read.
     }
   }
+  return { removed };
+}
+
+/**
+ * Run a cleanup immediately and then daily. The timer is unref'd so it never
+ * keeps a shutting-down process alive; returns an idempotent stop function.
+ */
+export function startAttachmentCleanup({
+  intervalMs = ATTACHMENT_SWEEP_INTERVAL_MS,
+} = {}) {
+  void cleanupOldAttachments().catch(() => {});
+  const timer = setInterval(() => {
+    void cleanupOldAttachments().catch(() => {});
+  }, Math.max(60_000, intervalMs));
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 /**

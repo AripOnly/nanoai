@@ -9,6 +9,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isWindows, setPrivateMode } from "./platform.js";
 
 export async function writeFileAtomic(
   filePath,
@@ -32,9 +33,9 @@ export async function writeFileAtomic(
     handle = null;
 
     await fs.rename(tempPath, filePath);
-
-    if (process.platform !== "win32") {
-      await fs.chmod(filePath, mode);
+    const modeApplied = await setPrivateMode(filePath, mode);
+    if (!modeApplied && !isWindows()) {
+      throw new Error(`Failed to set owner-only permissions on ${filePath}.`);
     }
   } catch (error) {
     if (handle) {

@@ -19,6 +19,8 @@ folder where it reads, writes, and organizes files for you.
   webFetch, plus Word/Excel creators.
 - **Live streaming** — assistant text, tool calls, and live tool output stream
   over Server-Sent Events; long outputs truncate with full logs saved to disk.
+- **Crash recovery** — `nanoai gateway start` runs a small supervisor that
+  restarts the gateway after a crash (1s → 30s backoff) and rotates its log.
 - **Explore subagent** — a primary agent can delegate a focused, read-only
   search to a fresh child session. The child has its own transcript and returns
   only a bounded report; it cannot delegate again or use write/shell tools.
@@ -66,7 +68,8 @@ nanoai gateway stop          # stop the backend
 nanoai doctor                # check installation health
 
 # Or with npm scripts from the repo folder:
-npm start                  # gateway in the foreground (debug logs live)
+npm start                  # supervised gateway (auto-restarts after a crash)
+npm run start:foreground   # direct gateway, no supervisor (debugging only)
 npm run chat               # chat UI (needs the gateway running)
 ```
 
@@ -93,6 +96,10 @@ the code. Environment variables (all optional):
 | `NANO_GATEWAY_URL`        | `http://localhost:3060/api/v1` | Gateway address for the CLI              |
 | `NANO_GATEWAY_TOKEN`      | generated on first boot        | Overrides the stored token; API updates to it return 409 |
 | `NANO_CORS_ORIGINS`       | empty                          | Comma-separated extra browser origins    |
+| `NANO_LOG_LEVEL`          | `info`                         | `debug`, `info`, `warn`, `error`, or `fatal` |
+| `NANO_RESTART_BASE_MS`    | `1000`                         | First crash-restart delay                |
+| `NANO_RESTART_MAX_MS`     | `30000`                        | Maximum crash-restart delay              |
+| `NANO_RESTART_LIMIT`      | `0`                            | Crash limit before giving up; `0` = unlimited |
 | `PORT`                    | `3060`                         | Gateway listen port (overrides `gateway.port`) |
 | `HOST`                    | `127.0.0.1`                    | Gateway bind address (overrides `gateway.host`) |
 | `EXA_API_KEY`             | —                              | Optional: higher web-search limits       |
@@ -113,7 +120,10 @@ snapshot if an edit is invalid; `/health` reports the revision and error.
 `X-Restart-Required`.
 
 For 24/7 operation, run the gateway as a system service (Task Scheduler on
-Windows, systemd/pm2 on Linux) with `NANO_WORKSPACE` set explicitly.
+Windows, systemd on Linux) with `NANO_WORKSPACE` set explicitly. The supervised
+daemon restarts a crashed gateway; an outer service manager is still useful as
+a second line of defense. See [docs/deployment.md](docs/deployment.md) for unit
+files, Task Scheduler settings, log rotation, and shutdown commands.
 
 ## Repository structure
 
@@ -123,6 +133,7 @@ agent-ai-nano/
   bin/nanoai.js          # the `nanoai` command (gateway supervision + chat)
   apps/console/          # detached gateway supervisor (start/stop/status/log)
   gateway/               # HTTP+S SSE backend (routes → controllers → services)
+    daemon.js            # crash-restart supervisor + log rotation
     server.js            # boot + graceful shutdown
   src/
     agents/              # agent loop, tool dispatch, registry, compaction
@@ -167,6 +178,22 @@ npm run doctor          # preflight health check (run before booting)
 npm run backup          # online SQLite backup with 7-copy retention
 npm run restore <file>  # validated restore (refuses while gateway runs)
 ```
+
+The supervised gateway writes JSON-line logs to
+`<data>/logs/gateway.log` (5 MB × 3 copies) and restarts a crashed child with
+exponential backoff. `nanoai gateway log 30` tails it. A deliberate stop can go
+through the authenticated endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:3060/api/v1/system/shutdown \
+  -H "Authorization: Bearer $NANO_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm":"shutdown"}'
+```
+
+The response is `202 Accepted`, live turns are aborted, and the process exits
+cleanly (the daemon does not restart it). Full systemd / Task Scheduler setup:
+[docs/deployment.md](docs/deployment.md).
 
 Database schema upgrades are versioned (`src/session/migrations.js`,
 `PRAGMA user_version`) and apply automatically at gateway boot.

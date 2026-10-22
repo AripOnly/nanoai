@@ -9,62 +9,26 @@ import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { isPS } from "./select.js";
 import { limits, preview, tail } from "#src/tools/shared/truncate.js";
+import { buildShellSpawn, killProcessTree } from "#src/infra/platform.js";
 
 const SIGKILL_TIMEOUT_MS = 200;
 
 async function killTree(child) {
   const pid = child.pid;
   if (!pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === "win32") {
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill", ["/pid", String(pid), "/f", "/t"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      killer.once("exit", () => resolve());
-      killer.once("error", () => resolve());
-    });
-    return;
-  }
-  try {
-    process.kill(-pid, "SIGTERM");
-    await new Promise((r) => setTimeout(r, SIGKILL_TIMEOUT_MS));
-    if (child.exitCode === null && child.signalCode === null) {
-      process.kill(-pid, "SIGKILL");
-    }
-  } catch {
-    try {
-      child.kill("SIGTERM");
-      await new Promise((r) => setTimeout(r, SIGKILL_TIMEOUT_MS));
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-    } catch {
-      // already exited
-    }
-  }
+  await killProcessTree(pid, { graceMs: SIGKILL_TIMEOUT_MS });
 }
 
 function buildSpawn(shell, command, cwd, env) {
-  if (process.platform === "win32" && isPS(shell)) {
-    return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
-      cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      detached: false,
-    });
-  }
-  return spawn(command, [], {
+  const spec = buildShellSpawn({
     shell,
+    command,
     cwd,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
     detached: process.platform !== "win32",
   });
+  return spawn(spec.command, spec.args, spec.options);
 }
 
 export async function runShell({ shell, command, cwd, env, timeout, signal, onUpdate }) {

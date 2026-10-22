@@ -18,6 +18,7 @@ import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { dataDir } from "#src/shared/data-dir.js";
+import { killProcessTree } from "#src/infra/platform.js";
 
 const RG_VERSION = "15.1.0";
 
@@ -191,22 +192,7 @@ export async function resolveRgBinary() {
 async function killTree(child) {
   const pid = child.pid;
   if (!pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === "win32") {
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill", ["/pid", String(pid), "/f", "/t"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      killer.once("exit", () => resolve());
-      killer.once("error", () => resolve());
-    });
-    return;
-  }
-  try {
-    child.kill("SIGKILL");
-  } catch {
-    // Already exited; nothing to do.
-  }
+  await killProcessTree(pid, { graceMs: 200 });
 }
 
 function isInvalidPatternMessage(stderr) {

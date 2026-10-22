@@ -13,6 +13,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
 import { PACKAGE_ROOT, dataDir } from "#src/shared/data-dir.js";
+import { killProcessTree } from "#src/infra/platform.js";
 import {
   SkillError,
   SKILL_NAME_RE,
@@ -199,22 +200,7 @@ function appendBounded(current, chunk) {
 
 function terminate(child) {
   if (!child || child.exitCode !== null) return;
-  try {
-    if (process.platform === "win32") {
-      spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      }).on("error", () => {});
-    } else {
-      child.kill("SIGKILL");
-    }
-  } catch {
-    try {
-      child.kill();
-    } catch {
-      // The process may already be gone.
-    }
-  }
+  void killProcessTree(child.pid, { graceMs: 200 }).catch(() => {});
 }
 
 /**

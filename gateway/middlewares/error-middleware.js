@@ -27,7 +27,18 @@ async function errorMiddleware(err, req, res, next) {
   const callerFacing =
     err instanceof ResponseError || (upstream !== null && upstream < 500);
   if (status >= 500) {
-    console.error("[nanoai] request failed:", err);
+    const logger = req.app?.locals?.logger;
+    if (logger?.error) {
+      logger.error("request failed", {
+        event: "http.request.failed",
+        method: req.method,
+        path: req.path,
+        status,
+        error: err,
+      });
+    } else {
+      console.error("[nanoai] request failed:", err);
+    }
   }
 
   res.status(status).json({

@@ -12,6 +12,7 @@ import { modelsRouter } from "../routes/models-route.js";
 import { agentRouter } from "../routes/agent-route.js";
 import { jobRouter } from "../routes/job-route.js";
 import { skillRouter } from "../routes/skill-route.js";
+import { systemRouter } from "../routes/system-route.js";
 import { errorMiddleware } from "../middlewares/error-middleware.js";
 import { authMiddleware } from "../middlewares/auth-middleware.js";
 import { auditMiddleware } from "../middlewares/audit-middleware.js";
@@ -36,12 +37,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *   app.locals.jobs and tools through the runtime.
  * @param {object} [options.skills] skill registry; reaches HTTP through
  *   app.locals.skills and the runtime through its turn view.
+ * @param {object} [options.logger] structured logger for transport events.
+ * @param {Function} [options.shutdown] graceful shutdown callback invoked by
+ *   POST /api/v1/system/shutdown after the response is sent.
  */
-export async function createApp({ runtime, jobs = null, skills = null } = {}) {
+export async function createApp({
+  runtime,
+  jobs = null,
+  skills = null,
+  logger = console,
+  shutdown = null,
+} = {}) {
   const app = express();
   app.locals.runtime = runtime;
   app.locals.jobs = jobs;
   app.locals.skills = skills;
+  app.locals.logger = logger;
+  app.locals.shutdown = shutdown;
+  app.locals.shuttingDown = false;
 
   // First settings snapshot (and therefore the CORS list) must be ready before
   // requests arrive. Later changes are read from the live snapshot on each
@@ -97,6 +110,7 @@ export async function createApp({ runtime, jobs = null, skills = null } = {}) {
   app.use("/api/v1/agent", agentRouter);
   app.use("/api/v1/jobs", jobRouter);
   app.use("/api/v1/skills", skillRouter);
+  app.use("/api/v1/system", systemRouter);
 
   // Web dashboard: served from the prebuilt client (npm run build:web) so that
   // `gateway start` activates API + web together with no dev server. Missing
@@ -120,9 +134,14 @@ export async function createApp({ runtime, jobs = null, skills = null } = {}) {
         }
         res.sendFile(indexHtml);
       });
-      console.log(`[nanoai] Serving web dashboard from ${distDir}`);
+      logger?.info?.("Serving web dashboard", {
+        event: "gateway.web.serving",
+        directory: distDir,
+      });
     } else {
-      console.log("[nanoai] Web dashboard not built yet — run: npm run build:web");
+      logger?.info?.("Web dashboard not built yet — run: npm run build:web", {
+        event: "gateway.web.missing",
+      });
     }
   }
 

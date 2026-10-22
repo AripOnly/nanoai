@@ -5,22 +5,38 @@
 // The gateway runs DETACHED (survives terminal close, required for 24/7),
 // tracked via a pidfile, logging to a file. Pure logic + small spawn wrapper,
 // unit-tested with real stub processes (never the real gateway).
+//
+// Since Fase 6 the detached entry point is gateway/daemon.js, not
+// gateway/server.js: the daemon owns the crash-restart loop and rotates the
+// operational log. This module starts/stops that daemon and reads its files.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir } from "#src/shared/data-dir.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { getSnapshot, initSettings } from "#src/config/index.js";
+import {
+  childPidFileFor,
+  consoleLogFileFor,
+  logFileFor,
+  pidFileFor,
+  stopFileFor,
+} from "#src/shared/gateway-paths.js";
+
+export {
+  childPidFileFor,
+  consoleLogFileFor,
+  logFileFor,
+  pidFileFor,
+  stopFileFor,
+};
 
 const DEFAULT_PORT = 3060;
 const MAX_LOG_TAIL_BYTES = 256 * 1024;
-
-export function pidFileFor() {
-  return path.join(dataDir(), "gateway.pid");
-}
-
-export function logFileFor() {
-  return path.join(dataDir(), "logs", "gateway.log");
-}
+// The daemon itself waits up to 12s for the gateway child before force-killing
+// it, so the CLI budget must be larger or it races that graceful stop.
+const STOP_WAIT_MS = 20_000;
+const STOP_WAIT_WITHOUT_HTTP_MS = 3_000;
 
 export function dashboardUrl(port = DEFAULT_PORT) {
   return `http://localhost:${port}/`;
@@ -57,7 +73,8 @@ export function helpText() {
     "Usage: nanoai <command>  (works from any folder)",
     "",
     "  nanoai gateway start     start the backend in the background (+ web UI)",
-    "  nanoai gateway stop      stop the backend",
+    "                           auto-restarts the gateway after a crash",
+    "  nanoai gateway stop      stop the backend gracefully",
     "  nanoai gateway restart   restart the backend",
     "  nanoai gateway status    show backend state (pid, health)",
     "  nanoai gateway log [n]   show the last n backend log lines (default 20)",
@@ -97,7 +114,7 @@ function readPid(pidFile) {
 
 function writePid(pidFile, pid) {
   fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  fs.writeFileSync(pidFile, String(pid), "utf8");
+  fs.writeFileSync(pidFile, String(pid), { encoding: "utf8", mode: 0o600 });
 }
 
 function clearPid(pidFile) {
@@ -105,6 +122,78 @@ function clearPid(pidFile) {
     fs.rmSync(pidFile, { force: true });
   } catch {
     // Best effort only.
+  }
+}
+
+function writeStopMarker(pid) {
+  const file = stopFileFor();
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify({ pid, at: new Date().toISOString() })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+  } catch {
+    // The HTTP shutdown path still works without the marker.
+  }
+}
+
+function clearStopMarker() {
+  try {
+    fs.rmSync(stopFileFor(), { force: true });
+  } catch {
+    // Best effort only.
+  }
+}
+
+async function requestHttpShutdown(port) {
+  let token = process.env.NANO_GATEWAY_TOKEN;
+  if (!token) {
+    try {
+      await initSettings();
+      token = getSnapshot()?.value?.gateway_token ?? null;
+    } catch {
+      token = null;
+    }
+  }
+  if (!token) return false;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2_000);
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${port}/api/v1/system/shutdown`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirm: "shutdown" }),
+        signal: controller.signal,
+      },
+    );
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function forceKill(pid) {
+  try {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      return;
+    }
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Already gone.
   }
 }
 
@@ -123,19 +212,25 @@ async function waitReady(port, timeoutMs = 30000) {
     if (Date.now() - started > timeoutMs) {
       return { ready: false };
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await delay(500);
   }
 }
 
-function waitExit(child, timeoutMs = 8000) {
-  if (child.exitCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), timeoutMs);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve(true);
-    });
-  });
+function readTail(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    const start = Math.max(0, stat.size - MAX_LOG_TAIL_BYTES);
+    const descriptor = fs.openSync(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(stat.size - start);
+      fs.readSync(descriptor, buffer, 0, buffer.length, start);
+      return buffer.toString("utf8");
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -146,8 +241,10 @@ export function createSupervisor({ repoRoot, port = DEFAULT_PORT, spawnFn = spaw
   if (typeof repoRoot !== "string" || repoRoot === "") {
     throw new Error("supervisor needs a repoRoot directory.");
   }
-  const pidFile = pidFileFor(repoRoot);
-  const logFile = logFileFor(repoRoot);
+  const pidFile = pidFileFor();
+  const logFile = logFileFor();
+  const consoleLog = consoleLogFileFor();
+  const daemonScript = path.join(repoRoot, "gateway", "daemon.js");
 
   function currentPid() {
     const pid = readPid(pidFile);
@@ -163,11 +260,22 @@ export function createSupervisor({ repoRoot, port = DEFAULT_PORT, spawnFn = spaw
       if (existing !== null) {
         return { ok: false, message: `Gateway already running (pid ${existing}).` };
       }
+      clearStopMarker();
       fs.mkdirSync(path.dirname(logFile), { recursive: true });
-      const out = fs.openSync(logFile, "a");
+      // The launch log is intentionally truncated: the daemon takes over
+      // logging as soon as it starts. Keeping old launch output would grow
+      // without the daemon's rotation policy.
+      const out = fs.openSync(consoleLog, "w", 0o600);
+      if (process.platform !== "win32") {
+        try {
+          fs.chmodSync(consoleLog, 0o600);
+        } catch {
+          // Best effort; the file was just created with 0600 where supported.
+        }
+      }
       let child;
       try {
-        child = spawnFn(process.execPath, ["gateway/server.js"], {
+        child = spawnFn(process.execPath, [daemonScript], {
           cwd: repoRoot,
           stdio: ["ignore", out, out],
           windowsHide: true,
@@ -193,42 +301,56 @@ export function createSupervisor({ repoRoot, port = DEFAULT_PORT, spawnFn = spaw
       writePid(pidFile, child.pid);
       const { ready, health } = await waitReady(port, timeoutMs);
       if (!ready) {
-        try {
-          child.kill();
-        } catch {
-          // Already gone; pidfile cleanup below still applies.
-        }
+        writeStopMarker(child.pid);
+        await delay(500);
+        forceKill(child.pid);
         clearPid(pidFile);
+        clearStopMarker();
         return { ok: false, message: `Gateway did not answer /health within ${Math.round(timeoutMs / 1000)}s. See 'nanoai gateway log'.` };
       }
       return { ok: true, message: `Gateway running (pid ${child.pid}, v${health?.version ?? "?"}). Web: ${dashboardUrl(port)}` };
     },
+
     async stop() {
       const pid = currentPid();
       if (pid === null) {
+        clearStopMarker();
         return { ok: false, message: "Gateway is not running." };
       }
-      try {
-        process.kill(pid);
-      } catch {
-        clearPid(pidFile);
-        return { ok: false, message: "Gateway process already gone (stale pidfile cleaned)." };
-      }
-      const deadline = Date.now() + 8000;
+
+      writeStopMarker(pid);
+      const accepted = await requestHttpShutdown(port);
+      const budget = accepted ? STOP_WAIT_MS : STOP_WAIT_WITHOUT_HTTP_MS;
+      const deadline = Date.now() + budget;
       let gone = !isAlive(pid);
       while (!gone && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await delay(100);
         gone = !isAlive(pid);
       }
+
+      if (!gone) {
+        // A wedged daemon must still be stopped, and on Windows `/T` also
+        // takes the gateway child with it.
+        forceKill(pid);
+        const killDeadline = Date.now() + 2_000;
+        while (!gone && Date.now() < killDeadline) {
+          await delay(100);
+          gone = !isAlive(pid);
+        }
+      }
+
       clearPid(pidFile);
+      clearStopMarker();
       return gone
         ? { ok: true, message: "Gateway stopped." }
-        : { ok: false, message: `Process ${pid} did not exit in 8s. Stop it manually.` };
+        : { ok: false, message: `Process ${pid} did not exit. Stop it manually.` };
     },
+
     async restart(options = {}) {
       await this.stop();
       return this.start(options);
     },
+
     async status() {
       const pid = currentPid();
       if (pid === null) {
@@ -249,23 +371,15 @@ export function createSupervisor({ repoRoot, port = DEFAULT_PORT, spawnFn = spaw
         return { running: true, pid, message: `Gateway process alive (pid ${pid}) but not answering /health yet.` };
       }
     },
+
     logTail(count = 20) {
       const n = Number.isInteger(count) && count > 0 ? count : 20;
-      let text = "";
-      try {
-        const stat = fs.statSync(logFile);
-        const start = Math.max(0, stat.size - MAX_LOG_TAIL_BYTES);
-        const descriptor = fs.openSync(logFile, "r");
-        try {
-          const buffer = Buffer.alloc(stat.size - start);
-          fs.readSync(descriptor, buffer, 0, buffer.length, start);
-          text = buffer.toString("utf8");
-        } finally {
-          fs.closeSync(descriptor);
-        }
-      } catch {
-        return "(no backend log captured yet)";
-      }
+      // The launch log only carries output written before the daemon opened
+      // the rotating log; show it first so early boot failures are not lost.
+      const text = [readTail(consoleLog), readTail(logFile)]
+        .filter((part) => part.trim() !== "")
+        .join("\n");
+      if (text === "") return "(no backend log captured yet)";
       const lines = text.split("\n").filter((line) => line.trim() !== "");
       const tail = lines.slice(-n);
       return tail.length > 0 ? tail.join("\n") : "(no backend log captured yet)";
