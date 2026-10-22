@@ -12,6 +12,7 @@ import {
   toolRegistry,
 } from "../../src/tools/registry.js";
 import { assertToolContract } from "../../src/tools/contract.js";
+import { delegate } from "../../src/tools/delegate.js";
 import {
   DEFAULT_TOOL_TIMEOUT_MS,
   executeTool,
@@ -111,5 +112,43 @@ describe("tool manifest", () => {
     const badJson = await executeTool({ name: "read", arguments: "{nope" });
     assert.equal(badJson.success, false);
     assert.match(badJson.error, /invalid arguments/);
+  });
+
+  it("validates delegate input and returns the structured child result", async () => {
+    const unavailable = await delegate(
+      { agent: "explore", task: "find it" },
+      {},
+    );
+    assert.equal(unavailable.status, "failed");
+    assert.match(unavailable.error, /not available/);
+
+    const invalid = await delegate(
+      { agent: "explore", task: "" },
+      { delegate: async () => assert.fail("must not run") },
+    );
+    assert.equal(invalid.status, "failed");
+    assert.match(invalid.error, /task/);
+
+    const calls = [];
+    const completed = await delegate(
+      { agent: " explore ", task: "find it", context: "src/" },
+      {
+        delegate: async (input) => {
+          calls.push(input);
+          return {
+            status: "completed",
+            summary: "found",
+            usage: null,
+            childSessionId: "child-1",
+          };
+        },
+      },
+    );
+
+    assert.deepEqual(calls, [
+      { agent: "explore", task: "find it", context: "src/" },
+    ]);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.childSessionId, "child-1");
   });
 });

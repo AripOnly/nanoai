@@ -12,7 +12,12 @@
 // limits halfway through a stream.
 
 import { agentLoop } from "#src/agents/agent-loop.js";
-import { getAgent, listAgentNames, toolNamesFor } from "#src/agents/index.js";
+import {
+  getAgent,
+  listAgentNames,
+  toolNamesFor,
+} from "#src/agents/index.js";
+import { getAgentDefinition } from "#src/agents/registry.js";
 import { executeTool } from "#src/tools/executor.js";
 import { toolRegistry } from "#src/tools/registry.js";
 import { createInstruction } from "#src/prompts/createInstruction.js";
@@ -25,10 +30,9 @@ import {
   shouldCompact,
 } from "./compaction.js";
 
-const INTERNAL_AGENTS = Object.freeze(["compaction"]);
-
 function unknownAgentMessage(name) {
-  if (INTERNAL_AGENTS.includes(name)) {
+  const internal = getAgentDefinition(name);
+  if (internal?.mode === "subagent") {
     return `Agent "${name}" is a subagent and cannot be run directly. Available agents: ${listAgentNames().join(", ")}.`;
   }
   return `Unknown agent "${name}". Available agents: ${listAgentNames().join(", ")}.`;
@@ -119,6 +123,9 @@ function* replayTurn(existing, sessionId) {
       event?.role === EVENT.TOKEN ||
       event?.role === EVENT.TOOL_UPDATE ||
       event?.role === EVENT.JOB_UPDATE ||
+      event?.role === EVENT.SUBAGENT_START ||
+      event?.role === EVENT.SUBAGENT_UPDATE ||
+      event?.role === EVENT.SUBAGENT_END ||
       event?.role === EVENT.TURN_START
     ) {
       continue;
@@ -146,6 +153,9 @@ function visibleInput(conversation) {
       event?.role !== EVENT.TOOL_UPDATE &&
       event?.role !== EVENT.JOB_UPDATE &&
       event?.role !== EVENT.JOB_NOTICE &&
+      event?.role !== EVENT.SUBAGENT_START &&
+      event?.role !== EVENT.SUBAGENT_UPDATE &&
+      event?.role !== EVENT.SUBAGENT_END &&
       event?.role !== EVENT.TURN_START,
   );
 }
@@ -222,6 +232,7 @@ export async function* runTurn({
   turnKind,
   triggerRef,
   jobNotice,
+  allowSubagent = false,
   deps,
 } = {}) {
   if (!deps || typeof deps !== "object") {
@@ -320,8 +331,10 @@ export async function* runTurn({
 
     // Validate the agent and the aborted signal before resolving a channel
     // identity: a rejected request must not create a session as a side effect.
-    const definition = getAgent(name);
-    if (!definition) {
+    // Child turns run internal subagents. This flag is never set by a gateway
+    // door; only the subagent runner can request a non-public definition.
+    const definition = allowSubagent ? getAgentDefinition(name) : getAgent(name);
+    if (!definition || (allowSubagent && definition.mode !== "subagent")) {
       throw new Error(unknownAgentMessage(name));
     }
 
@@ -519,7 +532,11 @@ export async function* runTurn({
       conversation.push({ role: EVENT.USER, content: { text: prompt } });
     }
 
-    const definitionTools = toolNamesFor(definition);
+    const canDelegate =
+      definition.mode === "primary" && typeof deps.subagent === "function";
+    const definitionTools = toolNamesFor(definition).filter(
+      (tool) => tool !== "delegate" || canDelegate,
+    );
     const effectivePolicy = mergePolicy(definition.policy, policy);
     const effectiveAllowedTools = Array.isArray(allowedTools)
       ? definitionTools.filter((tool) => allowedTools.includes(tool))
@@ -548,6 +565,21 @@ export async function* runTurn({
       }
     }
     const turnAllowedTools = skillView ? effectiveAllowedTools : nonSkillTools;
+    const delegateToSubagent = canDelegate
+      ? (input, toolContext = {}) =>
+          deps.subagent(input, {
+            parentSessionId: session_id,
+            parentTurnId: turnId,
+            parentAgent: name,
+            model: effectiveModelRef,
+            policy: effectivePolicy,
+            allowedTools: turnAllowedTools,
+            depth: 0,
+            signal,
+            onUpdate: toolContext.onUpdate,
+            logger,
+          })
+      : null;
     const autoSkills = skillView
       ? skillView.autoLoad(prompt)
       : { skill: null, content: "", hints: [] };
@@ -636,7 +668,11 @@ export async function* runTurn({
       jobs: deps.jobs ?? null,
       sentAttachments: collectAttachmentIds(input),
       executeTool: (toolCall, context = {}) =>
-        executeTool(toolCall, { ...context, skills: skillView }),
+        executeTool(toolCall, {
+          ...context,
+          skills: skillView,
+          delegate: delegateToSubagent,
+        }),
       requestCompaction,
     };
 

@@ -1,9 +1,9 @@
 // src/agents/registry.js
 //
 // Agent definitions are data, not behavior. `mode` separates the two public
-// primaries from internal helpers such as compaction. `policy` is the safety
-// envelope the runtime and tool executor enforce even if the model asks for a
-// tool that is not in the advertised list.
+// primaries from internal helpers such as explore and compaction. `policy` is
+// the safety envelope the runtime and tool executor enforce even if the model
+// asks for a tool that is not in the advertised list.
 //
 // Tool lists are plain names: the runtime turns them into provider schemas
 // through src/tools/registry.js, so agents never import a tool implementation.
@@ -55,6 +55,7 @@ const nano = Object.freeze({
     "webFetch",
     "loadSkill",
     "searchSkills",
+    "delegate",
   ]),
   skills: Object.freeze(["*"]),
   policy: FULL_POLICY,
@@ -63,6 +64,26 @@ const nano = Object.freeze({
 const plan = Object.freeze({
   mode: "primary",
   instruction: "plan",
+  tools: Object.freeze([
+    "read",
+    "glob",
+    "grep",
+    "webSearch",
+    "webFetch",
+    "loadSkill",
+    "searchSkills",
+    "delegate",
+  ]),
+  skills: Object.freeze(["*"]),
+  policy: READ_ONLY_POLICY,
+});
+
+// A delegatable subagent is still internal: it cannot be selected through the
+// gateway door and it never receives the `delegate` tool itself.
+const explore = Object.freeze({
+  mode: "subagent",
+  delegatable: true,
+  instruction: "explore",
   tools: Object.freeze([
     "read",
     "glob",
@@ -87,6 +108,7 @@ const compaction = Object.freeze({
 export const agents = Object.freeze({
   nano,
   plan,
+  explore,
   compaction,
 });
 

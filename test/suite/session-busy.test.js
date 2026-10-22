@@ -103,14 +103,16 @@ describe("session busy guard", () => {
 
   it("rejects internal subagents at the gateway door", () => {
     const id = makeSession();
-    assert.throws(
-      () =>
-        agentService({
-          name: "compaction",
-          prompt: "summarise",
-          session_id: id,
-        }),
-      (error) => error instanceof ResponseError && error.status === 400,
-    );
+    for (const name of ["compaction", "explore"]) {
+      assert.throws(
+        () =>
+          agentService({
+            name,
+            prompt: "summarise",
+            session_id: id,
+          }),
+        (error) => error instanceof ResponseError && error.status === 400,
+      );
+    }
   });
 });

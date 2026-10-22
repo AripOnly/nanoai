@@ -22,12 +22,14 @@ import {
   searchSkills,
   searchSkillsTool,
 } from "./skill.js";
+import { delegate, delegateTool } from "./delegate.js";
 import { assertToolContract } from "./contract.js";
 
 const READ_FS = Object.freeze({ fs: "read", net: false, shell: false });
 const WRITE_FS = Object.freeze({ fs: "write", net: false, shell: false });
 const READ_NET = Object.freeze({ fs: false, net: true, shell: false });
 const SHELL = Object.freeze({ fs: "write", net: true, shell: true });
+const SUBAGENT = Object.freeze({ fs: false, net: false, shell: false });
 
 export const TOOL_DEFINITIONS = Object.freeze([
   Object.freeze({
@@ -107,6 +109,16 @@ export const TOOL_DEFINITIONS = Object.freeze([
     schema: searchSkillsTool,
     capabilities: READ_FS,
     execute: searchSkills,
+  }),
+  Object.freeze({
+    name: "delegate",
+    schema: delegateTool,
+    capabilities: SUBAGENT,
+    // The subagent runner owns the normal 5-minute, abortable timeout. Keep
+    // the generic tool guard just above it so it never abandons a still-running
+    // child before the runner has a chance to abort it cleanly.
+    timeoutMs: 330_000,
+    execute: delegate,
   }),
 ]);
 

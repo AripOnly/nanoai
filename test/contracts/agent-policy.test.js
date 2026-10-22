@@ -15,6 +15,7 @@ import {
   hasAgent,
   listAgentNames,
 } from "../../src/agents/index.js";
+import { getAgentDefinition } from "../../src/agents/registry.js";
 import { toolExecute } from "../../src/tools/executor.js";
 import { shell } from "../../src/tools/shell/shell.js";
 import { resolveWorkspacePath } from "../../src/tools/shared/workspace.js";
@@ -58,6 +59,22 @@ describe("public agent roster and policy", () => {
     const nano = getAgent("nano");
     assert.equal(nano.policy.allowShell, true);
     assert.equal(nano.policy.allowWrite, true);
+  });
+
+  it("keeps explore internal, read-only, and unable to delegate", () => {
+    assert.equal(getAgent("explore"), undefined);
+    assert.equal(hasAgent("explore"), false);
+
+    const explore = getAgentDefinition("explore");
+    assert.equal(explore.mode, "subagent");
+    assert.equal(explore.delegatable, true);
+    assert.equal(explore.policy.allowShell, false);
+    assert.equal(explore.policy.allowWrite, false);
+    assert.ok(!explore.tools.includes("delegate"));
+    assert.ok(!explore.tools.includes("shell"));
+    assert.ok(explore.tools.includes("read"));
+    assert.ok(explore.tools.includes("grep"));
+    assert.ok(explore.tools.includes("webSearch"));
   });
 });
 

@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import { createInstruction } from "../../src/prompts/createInstruction.js";
 
 describe("createInstruction", () => {
-  it("loads the default and plan instructions", async () => {
-    for (const name of ["default", "plan"]) {
+  it("loads the default, plan, and explore instructions", async () => {
+    for (const name of ["default", "plan", "explore"]) {
       const text = await createInstruction(name);
       assert.ok(text.length > 1000, `${name} must have substance`);
     }

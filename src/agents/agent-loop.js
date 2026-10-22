@@ -167,6 +167,28 @@ export async function* agentLoop(request) {
           policy,
           jobs: request.jobs ?? null,
           onUpdate: (update = {}) => {
+            // Tools may publish structured subagent lifecycle events. Every
+            // other update keeps the established transient TOOL_UPDATE shape;
+            // the model never sees either kind in its conversation input.
+            if (
+              update.role === EVENT.SUBAGENT_START ||
+              update.role === EVENT.SUBAGENT_UPDATE ||
+              update.role === EVENT.SUBAGENT_END
+            ) {
+              pendingUpdates.push({
+                role: update.role,
+                content: {
+                  ...(update.content ?? {}),
+                  call_id:
+                    getCallId(update) ??
+                    getCallId(update.content) ??
+                    tc.call_id,
+                  name: tc.name,
+                },
+              });
+              return;
+            }
+
             pendingUpdates.push({
               role: EVENT.TOOL_UPDATE,
               content: {

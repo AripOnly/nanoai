@@ -7,8 +7,8 @@
 // src/llm/provider-contract.js and src/tools/.
 //
 // Only mode "primary" agents are public. Internal subagents such as
-// "compaction" stay reachable inside the module but cannot be invoked through
-// the gateway or any other outer door.
+// "explore" and "compaction" stay reachable inside the module but cannot be
+// invoked through the gateway or any other outer door.
 
 import {
   getPrimaryAgent,

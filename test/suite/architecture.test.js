@@ -288,6 +288,7 @@ describe("gateway import contracts", () => {
       false,
       "internal subagents must not be publicly addressable",
     );
+    assert.equal(door.hasAgent("explore"), false);
     assert.equal(door.getAgent("plan").mode, "primary");
   });
 });

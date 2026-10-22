@@ -19,6 +19,9 @@ folder where it reads, writes, and organizes files for you.
   webFetch, plus Word/Excel creators.
 - **Live streaming** — assistant text, tool calls, and live tool output stream
   over Server-Sent Events; long outputs truncate with full logs saved to disk.
+- **Explore subagent** — a primary agent can delegate a focused, read-only
+  search to a fresh child session. The child has its own transcript and returns
+  only a bounded report; it cannot delegate again or use write/shell tools.
 - **Conversational approval** — destructive actions are confirmed in chat, no
   popups.
 - **Persistent memory** — sessions, turns, and token usage in SQLite.

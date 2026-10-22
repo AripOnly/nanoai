@@ -15,8 +15,10 @@ import {
 } from "#src/models/index.js";
 import { getSnapshot } from "#src/config/index.js";
 import { runTurn } from "./turn.js";
+import { createSubagentRunner } from "./subagent.js";
 
 export { runTurn } from "./turn.js";
+export { createSubagentRunner } from "./subagent.js";
 export { createJobNotice } from "./job-notice.js";
 export {
   compactConversation,
@@ -115,19 +117,34 @@ export function createRuntime({
     });
   }
 
+  const runtimeDeps = {
+    session,
+    getConfig: () => config()?.value ?? {},
+    getCatalog: () => catalog(),
+    resolveModel: resolveTurnModel,
+    jobs,
+    skills,
+    logger,
+    subagent: null,
+  };
+
+  // The child runner is only available with a real session door. A test or
+  // embedding that supplies a narrower door simply will not advertise
+  // `delegate`, rather than failing runtime boot.
+  if (typeof session?.createSession === "function") {
+    runtimeDeps.subagent = createSubagentRunner({
+      session,
+      runTurn,
+      deps: runtimeDeps,
+      logger,
+    });
+  }
+
   return Object.freeze({
     runTurn(input) {
       return runTurn({
         ...input,
-        deps: {
-          session,
-          getConfig: () => config()?.value ?? {},
-          getCatalog: () => catalog(),
-          resolveModel: resolveTurnModel,
-          jobs,
-          skills,
-          logger,
-        },
+        deps: runtimeDeps,
       });
     },
 

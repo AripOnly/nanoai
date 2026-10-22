@@ -248,6 +248,9 @@ class SessionStore {
     if (event.role === EVENT.TOKEN) return;
     if (event.role === EVENT.TOOL_UPDATE) return;
     if (event.role === EVENT.JOB_UPDATE) return;
+    if (event.role === EVENT.SUBAGENT_START) return;
+    if (event.role === EVENT.SUBAGENT_UPDATE) return;
+    if (event.role === EVENT.SUBAGENT_END) return;
     if (event.role === EVENT.TURN_START) return;
 
     if (event.role === EVENT.ASSISTANT) {
