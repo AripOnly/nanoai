@@ -525,12 +525,20 @@ export async function* runTurn({
       }
     }
 
-    // A job notice lives in the system instruction and the persisted
-    // JOB_NOTICE event, never in the provider's conversation input. The turn
-    // itself still exists so the UI can show what woke the agent.
-    if (kind !== "job") {
-      conversation.push({ role: EVENT.USER, content: { text: prompt } });
-    }
+    // The persisted JOB_NOTICE event is UI-only, but the provider still needs
+    // a trailing user turn. Google's Interactions wire rejects input that ends
+    // with model_output (400 invalid_request), and the other wires stay on the
+    // normal "user turn, model answer" shape. Job details keep living in the
+    // system instruction, so the wake text stays short.
+    conversation.push({
+      role: EVENT.USER,
+      content: {
+        text:
+          kind === "job"
+            ? "A background job finished. Continue the user's work using the job update in the system instruction."
+            : prompt,
+      },
+    });
 
     const canDelegate =
       definition.mode === "primary" && typeof deps.subagent === "function";

@@ -381,4 +381,33 @@ describe("Google Interactions request", () => {
     assert.match(events[0].content.message, /API key not valid/);
     assert.equal(events[0].content.message.includes(secret), false);
   });
+
+  it("extracts the provider message from an SSE error frame with a leading event line", async () => {
+    const sse = fakeGoogle({
+      error: {
+        status: 400,
+        message: '400 API error occurred: {"httpMeta":{"response":{},"request":{}}}',
+        body:
+          "event: error\n" +
+          'data: {"error":{"message":"Request contains an invalid argument.","code":"invalid_request"},"event_type":"error"}\n\n',
+      },
+    });
+    const provider = createGoogleProvider({
+      clientFactory: () => sse.client,
+    });
+    provider.configure({ credentials: { apiKey: "sse_probe_key_123" } });
+
+    const events = await collect(
+      provider.request(
+        request({ id: "gemini-3.1-flash-lite", wire: "google-interactions" }),
+      ),
+    );
+
+    assert.equal(events[0].content.code, "PROVIDER_ERROR");
+    assert.match(
+      events[0].content.message,
+      /Request contains an invalid argument/,
+    );
+    assert.equal(events[0].content.message.includes("httpMeta"), false);
+  });
 });

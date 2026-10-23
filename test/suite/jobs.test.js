@@ -836,9 +836,20 @@ describe("job auto-continue", () => {
 });
 
 describe("job notice runtime contract", () => {
-  it("persists JOB_NOTICE but keeps it out of provider input", async () => {
+  it("persists JOB_NOTICE for the UI and appends a wake user turn for the provider", async () => {
+    // The agent loop appends the assistant answer to the same input array once
+    // the provider stream ends, so snapshot the request-time input here.
+    let sentInput = null;
     const provider = createFakeProvider({
-      turns: [textTurn("continued by the agent")],
+      turns: [
+        [
+          (request) => {
+            sentInput = structuredClone(request.input);
+            return null;
+          },
+          ...textTurn("continued by the agent"),
+        ],
+      ],
     });
     const sessionId = newSession("runtime-notice");
     const noticeText = [
@@ -887,9 +898,15 @@ describe("job notice runtime contract", () => {
     const request = provider.calls.request[0];
     assert.match(request.instruction, /RUNTIME-NOTICE-MARKER/);
     assert.ok(
-      !JSON.stringify(request.input).includes("RUNTIME-NOTICE-MARKER"),
-      "JOB_NOTICE must not reach provider input",
+      !JSON.stringify(sentInput).includes("RUNTIME-NOTICE-MARKER"),
+      "the notice text must not reach provider input",
     );
+
+    // Google's Interactions wire rejects input that ends with model_output,
+    // so the provider input must carry a trailing user wake turn.
+    const wake = sentInput.at(-1);
+    assert.equal(wake.role, EVENT.USER);
+    assert.match(wake.content.text, /background job finished/i);
 
     const turns = sessionDoor.listTurns(sessionId, { limit: 5 });
     assert.equal(turns[0].kind, "job");

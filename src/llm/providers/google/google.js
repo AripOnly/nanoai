@@ -102,24 +102,32 @@ function toGemini(part) {
 
 /**
  * Pull the provider's human-readable message out of every body shape the
- * Google SDK has used: an SSE/JSON string, a decoded JSON array, or an object.
- * Newer SDK versions return `[{ error: { message } }]` for HTTP failures.
+ * Google SDK has used: an SSE/JSON string (with or without leading `event:`
+ * lines), a decoded JSON array, or an object. Newer SDK versions return
+ * `[{ error: { message } }]` for HTTP failures, and streamed failures arrive
+ * as `event: error\ndata: {"error":{"message":...}}` frames.
  */
 function messageFromBody(body) {
   if (typeof body === "string") {
     const text = body.trim();
     if (text === "") return null;
-    if (text.startsWith("data:")) {
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
+
+    // Scan every line for `data:` payloads; an SSE frame often starts with an
+    // `event:` line, so a startsWith("data:") check would miss it.
+    const dataLines = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"));
+    if (dataLines.length > 0) {
+      for (const line of dataLines) {
+        const payload = line.slice(5).trim();
         if (payload === "" || payload === "[DONE]") continue;
         const nested = messageFromBody(payload);
         if (nested) return nested;
       }
       return null;
     }
+
     try {
       return messageFromBody(JSON.parse(text));
     } catch {
@@ -160,12 +168,12 @@ function errorMessage(err) {
   ) {
     detail = err.error.message.trim();
   }
+  if (detail) return detail;
 
-  const errMsg = String(err?.message ?? err ?? "");
-  const message = detail || errMsg || "Google provider error";
-  return errMsg && !errMsg.includes(message)
-    ? `${errMsg}\n${message}`
-    : message;
+  // Fall back to the SDK message only when the body carried no usable detail;
+  // SDK strings like `400 API error occurred: {"httpMeta":...}` are noise.
+  const errMsg = String(err?.message ?? err ?? "").trim();
+  return errMsg || "Google provider error";
 }
 
 export function createGoogleProvider({
